@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
 
     outputs:
       frontend_release_created: ${{ steps.release.outputs['packages/frontend--release_created'] }}

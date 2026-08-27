@@ -5,9 +5,12 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   check:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -111,11 +114,10 @@ jobs:
         run: pnpm audit --prod --audit-level high
 
   container:
-    # Build the container image on a Docker-capable GitHub-hosted runner (the
-    # self-hosted runners only handle non-Docker jobs) so a broken Dockerfile or
-    # an image that crashes on boot fails the pull request instead of surfacing
-    # only at release time. Mirrors the build in release-please.yml but never
-    # pushes.
+    # Build the container image on a Docker-capable GitHub-hosted runner so a
+    # broken Dockerfile or an image that crashes on boot fails the pull request
+    # instead of surfacing only at release time. Mirrors the build in
+    # release-please.yml but never pushes.
     runs-on: ubuntu-latest
 
     steps:
