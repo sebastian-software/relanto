@@ -881,8 +881,10 @@ describe("dashboard create forms", () => {
 
 describe("dashboard confirmation dialog focus management", () => {
   let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot> | undefined;
 
   beforeEach(() => {
+    root = undefined;
     vi.resetModules();
     useActionData.mockReturnValue(undefined);
     useRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
@@ -935,6 +937,10 @@ describe("dashboard confirmation dialog focus management", () => {
   });
 
   afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = undefined;
     document.body.innerHTML = "";
     useActionData.mockReset();
     useLoaderData.mockReset();
@@ -967,10 +973,11 @@ describe("dashboard confirmation dialog focus management", () => {
 
   async function openTokenPanel(): Promise<void> {
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
 
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     // Reveal the token list (and its rotate/revoke/delete actions).
@@ -1199,6 +1206,7 @@ describe("dashboard sendTestMail action", () => {
 
 describe("dashboard recent jobs application link", () => {
   let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot> | undefined;
   let scrollIntoViewMock: ReturnType<typeof vi.fn>;
   let matchMediaMock: ReturnType<typeof vi.fn>;
 
@@ -1221,6 +1229,7 @@ describe("dashboard recent jobs application link", () => {
   }
 
   beforeEach(() => {
+    root = undefined;
     vi.resetModules();
     useActionData.mockReturnValue(undefined);
     useRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
@@ -1292,6 +1301,10 @@ describe("dashboard recent jobs application link", () => {
   });
 
   afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = undefined;
     vi.useRealTimers();
     document.body.innerHTML = "";
     useActionData.mockReset();
@@ -1327,9 +1340,10 @@ describe("dashboard recent jobs application link", () => {
 
   it("renders the application name as a button with an aria-label", async () => {
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     const button = getApplicationLinkButton("Reports App");
@@ -1341,9 +1355,10 @@ describe("dashboard recent jobs application link", () => {
   it("opens the application card, scrolls it into view smoothly and highlights it", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     expect(getApplicationCard("app_2").getAttribute("data-highlight")).toBeNull();
@@ -1375,9 +1390,10 @@ describe("dashboard recent jobs application link", () => {
   it("uses behavior auto when prefers-reduced-motion is active", async () => {
     mockReducedMotion(true);
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     act(() => {
@@ -1393,9 +1409,10 @@ describe("dashboard recent jobs application link", () => {
   it("clears the admin filter and shows the restore notice when the application is hidden", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     const adminSelect = getAdminSelect();
@@ -1424,9 +1441,10 @@ describe("dashboard recent jobs application link", () => {
 
   it("restores the previous admin filter when the restore button is clicked", async () => {
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     const adminSelect = getAdminSelect();
@@ -1455,8 +1473,10 @@ describe("dashboard recent jobs application link", () => {
 
 describe("dashboard recent jobs reload button", () => {
   let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot> | undefined;
 
   beforeEach(() => {
+    root = undefined;
     vi.resetModules();
     useActionData.mockReturnValue(undefined);
     vi.mocked(requireSystemAdminUser).mockResolvedValue({
@@ -1479,6 +1499,10 @@ describe("dashboard recent jobs reload button", () => {
   });
 
   afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = undefined;
     document.body.innerHTML = "";
     useActionData.mockReset();
     useLoaderData.mockReset();
@@ -1503,9 +1527,10 @@ describe("dashboard recent jobs reload button", () => {
   it("renders the reload button with last-updated timestamp in idle state", async () => {
     useRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     const button = getReloadButton();
@@ -1542,9 +1567,10 @@ describe("dashboard recent jobs reload button", () => {
     });
     useRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     expect(container.textContent).toContain("Jun 1, 2026, 12:00 AM");
@@ -1554,9 +1580,10 @@ describe("dashboard recent jobs reload button", () => {
     const revalidate = vi.fn();
     useRevalidator.mockReturnValue({ revalidate, state: "idle" });
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     act(() => {
@@ -1569,9 +1596,10 @@ describe("dashboard recent jobs reload button", () => {
   it("disables the button and shows a refreshing label while loading", async () => {
     useRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "loading" });
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     const button = getReloadButton();
@@ -1586,9 +1614,10 @@ describe("dashboard recent jobs reload button", () => {
   it("exposes the reload group as an aria-live polite region", async () => {
     useRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
     const group = container.querySelector(".reloadButtonGroup");
@@ -1722,8 +1751,10 @@ describe("dashboard rename actions", () => {
 
 describe("dashboard form pending states", () => {
   let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot> | undefined;
 
   beforeEach(() => {
+    root = undefined;
     vi.resetModules();
     useActionData.mockReturnValue(undefined);
     useRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
@@ -1777,6 +1808,10 @@ describe("dashboard form pending states", () => {
   });
 
   afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = undefined;
     document.body.innerHTML = "";
     useActionData.mockReset();
     useLoaderData.mockReset();
@@ -1829,12 +1864,13 @@ describe("dashboard form pending states", () => {
 
   async function mountDashboard(): Promise<ReturnType<typeof createRoot>> {
     const { default: Dashboard } = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<Dashboard />);
+      mountedRoot.render(<Dashboard />);
     });
 
-    return root;
+    return mountedRoot;
   }
 
   async function updateTree(root: ReturnType<typeof createRoot>): Promise<void> {
@@ -1959,6 +1995,7 @@ describe("dashboard form pending states", () => {
 
 describe("dashboard accessibility affordances", () => {
   let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot> | undefined;
 
   const failedJob = {
     applicationId: "app_1",
@@ -1990,6 +2027,7 @@ describe("dashboard accessibility affordances", () => {
   }
 
   beforeEach(() => {
+    root = undefined;
     vi.resetModules();
     useActionData.mockReturnValue(undefined);
     useNavigation.mockReturnValue({ formData: undefined, state: "idle" });
@@ -2014,6 +2052,10 @@ describe("dashboard accessibility affordances", () => {
   });
 
   afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = undefined;
     document.body.innerHTML = "";
     useActionData.mockReset();
     useLoaderData.mockReset();
@@ -2023,9 +2065,10 @@ describe("dashboard accessibility affordances", () => {
 
   async function renderDashboard(): Promise<void> {
     const DashboardModule = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<DashboardModule.default />);
+      mountedRoot.render(<DashboardModule.default />);
     });
   }
 
@@ -2162,8 +2205,10 @@ describe("dashboard accessibility affordances", () => {
 
 describe("dashboard job delete confirmation", () => {
   let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot> | undefined;
 
   beforeEach(() => {
+    root = undefined;
     vi.resetModules();
     useActionData.mockReturnValue(undefined);
     useNavigation.mockReturnValue({ formData: undefined, state: "idle" });
@@ -2215,6 +2260,10 @@ describe("dashboard job delete confirmation", () => {
   });
 
   afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = undefined;
     document.body.innerHTML = "";
     useActionData.mockReset();
     useLoaderData.mockReset();
@@ -2235,9 +2284,10 @@ describe("dashboard job delete confirmation", () => {
 
   it("asks for confirmation before submitting a job deletion", async () => {
     const DashboardModule = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<DashboardModule.default />);
+      mountedRoot.render(<DashboardModule.default />);
     });
 
     expect(container.querySelector("dialog[open]")).toBeNull();
@@ -2265,8 +2315,10 @@ describe("dashboard job delete confirmation", () => {
 describe("dashboard client secret copy button", () => {
   let container: HTMLDivElement;
   let originalClipboard: PropertyDescriptor | undefined;
+  let root: ReturnType<typeof createRoot> | undefined;
 
   beforeEach(() => {
+    root = undefined;
     vi.resetModules();
     originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
     useNavigation.mockReturnValue({ formData: undefined, state: "idle" });
@@ -2327,6 +2379,10 @@ describe("dashboard client secret copy button", () => {
   });
 
   afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = undefined;
     if (originalClipboard) {
       Object.defineProperty(navigator, "clipboard", originalClipboard);
     } else {
@@ -2349,9 +2405,10 @@ describe("dashboard client secret copy button", () => {
 
   async function renderAndOpenTokens(): Promise<void> {
     const DashboardModule = await import("./dashboard");
-    const root = createRoot(container);
+    const mountedRoot = createRoot(container);
+    root = mountedRoot;
     flushSync(() => {
-      root.render(<DashboardModule.default />);
+      mountedRoot.render(<DashboardModule.default />);
     });
 
     const manageButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
