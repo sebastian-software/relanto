@@ -1,0 +1,265 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-04-01 10:32+0200\n"
+"PO-Revision-Date: 2026-04-01 10:32+0200\n"
+"Last-Translator: \n"
+"Language: en\n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: palamedes\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Actions"
+msgstr "Actions"
+
+msgid "Application"
+msgstr "Application"
+
+msgid "Application Admin"
+msgstr "Application Admin"
+
+msgid "Configured Mailers"
+msgstr "Configured Mailers"
+
+msgid "Connection timeout ms"
+msgstr "Connection timeout ms"
+
+msgid "Continue with Pocket ID"
+msgstr "Continue with Pocket ID"
+
+msgid "Create principal"
+msgstr "Create principal"
+
+msgid "Create SMTP config"
+msgstr "Create SMTP config"
+
+msgid "Create token"
+msgstr "Create token"
+
+msgid "Create config"
+msgstr "Create config"
+
+msgid "Created"
+msgstr "Created"
+
+msgid "Define credentials, TLS posture and timeout behavior for outbound "
+"delivery."
+msgstr "Define credentials, TLS posture and timeout behavior for outbound "
+"delivery."
+
+msgid "Delete"
+msgstr "Delete"
+
+msgid "External mailer control plane"
+msgstr "External mailer control plane"
+
+msgid "External reference"
+msgstr "External reference"
+
+msgid "Greeting timeout ms"
+msgstr "Greeting timeout ms"
+
+msgid "Host"
+msgstr "Host"
+
+msgid "Identity"
+msgstr "Identity"
+
+msgid "Infrastructure"
+msgstr "Infrastructure"
+
+msgid "Issue token"
+msgstr "Issue token"
+
+msgid "Issued tokens"
+msgstr "Issued tokens"
+
+msgid "Issued Tokens"
+msgstr "Issued Tokens"
+
+msgid "Label"
+msgstr "Label"
+
+msgid "Localized control plane"
+msgstr "Localized control plane"
+
+msgid "Logout"
+msgstr "Logout"
+
+msgid "Mailer system admin"
+msgstr "Mailer system admin"
+
+msgid "Manage own tokens"
+msgstr "Manage own tokens"
+
+msgid "Manage tokens"
+msgstr "Manage tokens"
+
+msgid "Min TLS version"
+msgstr "Min TLS version"
+
+msgid "Missing Pocket ID configuration. Set POCKET_ID_ISSUER, "
+"POCKET_ID_CLIENT_ID and outside local development "
+"POCKET_ID_REDIRECT_URI."
+msgstr "Missing Pocket ID configuration. Set POCKET_ID_ISSUER, "
+"POCKET_ID_CLIENT_ID and outside local development "
+"POCKET_ID_REDIRECT_URI."
+
+msgid "Name"
+msgstr "Name"
+
+msgid "OIDC sign-in, scoped tokens and persistent delivery queue"
+msgstr "OIDC sign-in, scoped tokens and persistent delivery queue"
+
+msgid "Only users in the Pocket ID group superadmin can access the "
+"administration interface."
+msgstr "Only users in the Pocket ID group superadmin can access the "
+"administration interface."
+
+msgid "Open Jobs"
+msgstr "Open Jobs"
+
+msgid "Operations"
+msgstr "Operations"
+
+msgid "Password"
+msgstr "Password"
+
+msgid "Pause"
+msgstr "Pause"
+
+msgid "Port"
+msgstr "Port"
+
+msgid "Principal"
+msgstr "Principal"
+
+msgid "Read status"
+msgstr "Read status"
+
+msgid "Recent jobs"
+msgstr "Recent jobs"
+
+msgid "Recent queue activity with pause, retry and delete controls."
+msgstr "Recent queue activity with pause, retry and delete controls."
+
+msgid "Recipient"
+msgstr "Recipient"
+
+msgid "Register application admins and application identities before assigning "
+"scoped tokens."
+msgstr "Register application admins and application identities before assigning "
+"scoped tokens."
+
+msgid "Relanto Mailer"
+msgstr "Relanto Mailer"
+
+msgid "Require TLS"
+msgstr "Require TLS"
+
+msgid "Resume"
+msgstr "Resume"
+
+msgid "Retain attachments (days)"
+msgstr "Retain attachments (days)"
+
+msgid "Retain error details (days)"
+msgstr "Retain error details (days)"
+
+msgid "Retain failed jobs (days)"
+msgstr "Retain failed jobs (days)"
+
+msgid "Retain sent jobs (days)"
+msgstr "Retain sent jobs (days)"
+
+msgid "Retry"
+msgstr "Retry"
+
+msgid "Revoke"
+msgstr "Revoke"
+
+msgid "Rotate"
+msgstr "Rotate"
+
+msgid "Scopes"
+msgstr "Scopes"
+
+msgid "Scoped credentials for application admins and applications."
+msgstr "Scoped credentials for application admins and applications."
+
+msgid "Secure connection"
+msgstr "Secure connection"
+
+msgid "Sebastian Software"
+msgstr "Sebastian Software"
+
+msgid "Send"
+msgstr "Send"
+
+msgid "Sign in with Pocket ID."
+msgstr "Sign in with Pocket ID."
+
+msgid "Signed in as {userLabel}. Manage SMTP infrastructure, delegated "
+"principals, access tokens and delivery operations from one deliberately "
+"designed admin surface."
+msgstr "Signed in as {userLabel}. Manage SMTP infrastructure, delegated "
+"principals, access tokens and delivery operations from one deliberately "
+"designed admin surface."
+
+msgid "SMTP configs"
+msgstr "SMTP configs"
+
+msgid "Send rate limit per minute"
+msgstr "Send rate limit per minute"
+
+msgid "Socket timeout ms"
+msgstr "Socket timeout ms"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Subject"
+msgstr "Subject"
+
+msgid "Use 0 to disable the send rate limit for this application."
+msgstr "Use 0 to disable the send rate limit for this application."
+
+msgid "System Admin"
+msgstr "System Admin"
+
+msgid "System-admin only operational console"
+msgstr "System-admin only operational console"
+
+msgid "System Admin Session"
+msgstr "System Admin Session"
+
+msgid "Transport"
+msgstr "Transport"
+
+msgid "Transport endpoints ready for validation, rotation and dispatch."
+msgstr "Transport endpoints ready for validation, rotation and dispatch."
+
+msgid "{value0} can now receive admin tokens and own applications."
+msgstr "{value0} can now receive admin tokens and own applications."
+
+msgid "Type"
+msgstr "Type"
+
+msgid "Update config"
+msgstr "Update config"
+
+msgid "Update transport"
+msgstr "Update transport"
+
+msgid "Username"
+msgstr "Username"
+
+msgid "Validate"
+msgstr "Validate"
+
+msgid "Validate config"
+msgstr "Validate config"

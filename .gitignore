@@ -1,0 +1,25 @@
+tmp/
+
+.DS_Store
+.env
+node_modules/
+
+# Test coverage
+coverage/
+
+# React Router
+.react-router/
+build/
+.wisdom-accumulation-*.tmp.md
+
+packages/frontend/.env*
+!packages/frontend/.env*.example
+packages/palamedes-*/dist/
+
+review-report-*.md
+
+TODO.md
+.claude/settings.local.json
+TODOs.md
+
+.effective-flow/

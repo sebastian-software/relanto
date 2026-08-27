@@ -1,0 +1,50 @@
+[Unit]
+Description=Relanto Mailer
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/sebastian-software/relanto:latest
+ContainerName=relanto
+PublishPort=3000:3000
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=MAILER_DB_PATH=/var/lib/relanto/mailer.sqlite
+# Replace these placeholders before first start.
+# Example generation:
+#   openssl rand -hex 32
+# The application rejects the placeholder values below on startup.
+Environment=APP_SESSION_SECRET=__REPLACE_WITH_OPENSSL_RAND_HEX_32__
+Environment=MAILER_SECRET_KEY=__REPLACE_WITH_OPENSSL_RAND_HEX_32__
+# Bearer token guarding the /api/metrics endpoint.
+# Use a strong, random secret with at least 32 characters (e.g. openssl rand -hex 32).
+Environment=METRICS_TOKEN=__REPLACE_WITH_OPENSSL_RAND_HEX_32__
+Environment=POCKET_ID_ISSUER=https://pocket-id.example.com
+Environment=POCKET_ID_CLIENT_ID=mailer
+Environment=POCKET_ID_REDIRECT_URI=https://mailer.example.com/auth/callback
+# Optional. Days for which 4xx API failure entries are retained in the admin panel
+# (default 30). Older entries are purged by the worker cleanup loop.
+# Environment=API_FAILURE_RETENTION_DAYS=30
+# Optional operator identity and theme. Keep both lines commented for generic mode.
+# Enable only after the complete asset directory has passed the documented preflight.
+# Environment=RELANTO_OPERATOR_ASSETS=true
+# Volume=<HOST_OPERATOR_ASSETS_DIRECTORY>:/app/build/client/operator-assets:ro
+# Single-instance deployment only. The SQLite database must live on persistent storage.
+# The named volume can be backed up and restored from the host with the scripts in deploy/.
+# The container runs as the unprivileged "node" user (uid/gid 1000). The ":U" mount
+# option makes Podman recursively chown the volume to that user on start, so the
+# process can write the SQLite database even into a pre-existing, root-owned volume.
+Volume=relanto-data:/var/lib/relanto:U
+# Probe the application /health endpoint (checks DB + worker liveness, 200 healthy / 503 unhealthy).
+# Uses Node's global fetch (Node >= 18) so no curl/wget dependency is required in the image.
+# Runs via /bin/sh -c inside the container; exits 0 only when the response is 2xx.
+HealthCmd=node -e "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HealthInterval=30s
+HealthTimeout=5s
+HealthStartPeriod=30s
+HealthRetries=3
+# Notify=healthy is intentionally omitted: the application does not send sd_notify (READY=1),
+# so a plain container healthcheck is used instead of gating systemd readiness on it.
+
+[Install]
+WantedBy=default.target

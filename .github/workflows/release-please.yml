@@ -1,0 +1,84 @@
+name: release-please
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: write
+
+jobs:
+  release-please:
+    runs-on: [self-hosted, linux, x64]
+
+    outputs:
+      frontend_release_created: ${{ steps.release.outputs['packages/frontend--release_created'] }}
+      frontend_tag_name: ${{ steps.release.outputs['packages/frontend--tag_name'] }}
+
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish-container:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.frontend_release_created == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/sebastian-software/relanto
+          tags: |
+            type=raw,value=${{ needs.release-please.outputs.frontend_tag_name }}
+            type=sha,prefix=sha-
+            type=raw,value=latest
+
+      # Build the image locally and smoke-test it BEFORE pushing, so an image
+      # that crashes on boot is never published as `latest`. The subsequent push
+      # step reuses the buildx layer cache, so this does not build twice from
+      # scratch.
+      - name: Build image for smoke test (no push)
+        uses: docker/build-push-action@v7
+        with:
+          build-args: |
+            RELANTO_GIT_SHORT_SHA=${{ github.sha }}
+          context: .
+          file: ./Dockerfile
+          load: true
+          platforms: linux/amd64
+          provenance: false
+          push: false
+          tags: relanto:smoke-test
+
+      - name: Smoke-test the container image
+        run: ./scripts/smoke-test-container.sh relanto:smoke-test
+
+      - uses: docker/build-push-action@v7
+        with:
+          build-args: |
+            RELANTO_GIT_SHORT_SHA=${{ github.sha }}
+          context: .
+          file: ./Dockerfile
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          provenance: false
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}

@@ -1,0 +1,1104 @@
+# Relanto
+
+Relanto is a self-hosted mail delivery service with an admin frontend and an HTTP API.
+
+Use this file if you are an LLM that needs to integrate an application with Relanto's mail API.
+
+## What Relanto provides
+
+- An admin frontend for operators
+- Token-based API access for applications and admin workflows
+- SMTP-backed outbound mail delivery
+- Delivery queue and retry handling
+- Job status tracking
+
+A machine-readable OpenAPI 3.1 specification is available at `packages/backend/openapi.json`. It is suitable for client generation and contract tests. CI enforces that the spec stays current and covers all routes. This prose file remains the authoritative description of Relanto's API semantics and behavior.
+
+## Integration model
+
+Applications integrate with Relanto through client credentials and short-lived JWT Bearer tokens.
+
+There are two main credential families:
+
+- Application tokens
+- Application-admin tokens
+
+For normal application-side mail delivery, use an application credential.
+
+## Conventions for all endpoints
+
+These conventions apply to every endpoint under `/api/v1/*` unless an endpoint explicitly says otherwise.
+
+- All endpoints accept and return JSON. Requests with a body must set `Content-Type: application/json`.
+- All endpoints except `POST /api/v1/token` require an `Authorization: Bearer <jwt>` header.
+- All string fields are trimmed before validation. After trimming, required strings must contain at least one character.
+- Optional fields can be omitted entirely. Sending an empty string for an optional string is rejected.
+- Numeric fields are validated as whole numbers (integers) unless stated otherwise.
+- Validation errors return HTTP `400` (or `413` for attachment size issues) with `{ "ok": false, "error": "Validation failed", "issues": [...] }`. The `issues` array follows the Zod issue shape and includes `path` (the offending field) and `message`; the specific reason for each field is in its `message`.
+- Successful responses always include `ok: true`. Successful list endpoints return the data under a named key (`jobs`, `configs`, etc.).
+- The full client secret of a token is only returned once: at creation and at rotation. Read endpoints never return the secret.
+
+## HTTP method conventions
+
+The API uses a deliberately mixed, pragmatic scheme rather than a strict REST mapping:
+
+- `GET` reads a resource or list and never changes state (`GET /api/v1/config`, `GET /api/v1/jobs`, `GET /api/v1/tokens/:tokenId`).
+- `POST` creates resources (`POST /api/v1/applications`, `POST /api/v1/configs`, `POST /api/v1/configs/:configId/tokens`) and is also the entry point for the token exchange (`POST /api/v1/token`) and mail send (`POST /api/v1/send`).
+- State transitions are modeled intentionally as RPC-style `POST` sub-actions on the resource rather than as field updates: `POST /api/v1/tokens/:tokenId/revoke`, `POST /api/v1/tokens/:tokenId/rotate`, `POST /api/v1/jobs/:jobId/pause`, `POST /api/v1/jobs/:jobId/resume`, `POST /api/v1/jobs/:jobId/retry`, `POST /api/v1/configs/:configId/validate`.
+- `PUT` replaces a full resource representation (`PUT /api/v1/configs/:configId` takes the complete config body).
+- `PATCH` updates a single sub-field of a resource (`PATCH /api/v1/tokens/:tokenId/scopes` updates only the scope set).
+- `DELETE` removes a resource (`DELETE /api/v1/jobs/:jobId`, `DELETE /api/v1/tokens/:tokenId`).
+
+Calling a route with an unsupported method returns `405` with an `Allow` header listing the accepted methods.
+
+## Client implementation for JWT auth
+
+Clients should implement this sequence:
+
+1. Store `client_id` and `client_secret` securely on the server side.
+2. Request a short-lived access token from `POST /api/v1/token`.
+3. Send the returned JWT as `Authorization: Bearer <access_token>`.
+4. Renew the access token before or after expiry by calling the token endpoint again.
+5. Do not expect or implement refresh tokens.
+
+Client rules for this auth flow:
+
+- keep `client_secret` out of browser code and mobile apps
+- only request JWTs from trusted backend services
+- cache the JWT only for its short lifetime
+- treat `401` responses as a signal to obtain a fresh JWT and retry once
+- keep using HTTPS only
+
+## Important scopes
+
+- `send`: enqueue or directly send mail
+- `readStatus`: read job status metadata
+- `readConfig`: read the current application SMTP config without username or secrets
+- `validate`: validate SMTP configuration
+- `manageTokens`: manage token metadata and token issuance
+- `manageApplications`: manage applications, SMTP configs, and queue control operations
+
+Do not assume that a token with one scope can perform unrelated operations. Scope checks are strict.
+
+## Endpoint: Issue access token
+
+- `POST /api/v1/token`
+- No authorization header. The endpoint itself is the entry into the JWT-bearer flow.
+
+Request body fields:
+
+- `clientId` (required, string) — the persistent client identifier shown at token creation, e.g. `appcli_…` or `admcli_…`.
+- `clientSecret` (required, string) — the secret returned at token creation or rotation. Never log or store it in browser code.
+
+Request example:
+
+```json
+{
+  "clientId": "appcli_01HV…",
+  "clientSecret": "relanto_secret_…"
+}
+```
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "tokenType": "Bearer",
+  "accessToken": "<jwt>",
+  "expiresIn": 900
+}
+```
+
+- `expiresIn` is the JWT lifetime in seconds.
+- The JWT lifetime is fixed at 15 minutes. There is no refresh token; obtain a new JWT when the old one expires.
+
+Errors:
+
+- `400` for missing or empty `clientId`/`clientSecret`.
+- `401` with `{ "ok": false, "error": "Invalid or revoked client credentials" }` when the credentials do not match or the token was revoked.
+
+## Endpoint: Send mail
+
+- `POST /api/v1/send`
+
+Expected token scope: `send`. Application-admin tokens cannot send mail directly; only application tokens can. System-admin sessions are also rejected by this endpoint.
+
+Request body fields:
+
+- `messageId` (required, string) — application-side identifier for this outbound mail. Relanto persists it on the job and propagates it as the SMTP `Message-ID` header. Use a globally unique value per send, formatted as an RFC 5322 Message-ID, e.g. `<order-42@your-domain.example>`.
+- `to` (required, string) — recipient address. Passed through to the SMTP transport, which accepts a single address or a comma-separated list of RFC 5322 addresses.
+- `subject` (required, string) — RFC 5322 subject header.
+- `html` (required, string) — HTML body, max `200000` characters after trimming.
+- `text` (required, string) — plain-text body, max `100000` characters after trimming.
+- `from` (optional, string, email) — sender address. If omitted, Relanto uses the SMTP config's `defaultFromAddress`. Must be a syntactically valid email.
+- `headers` (optional, `Record<string, string>`) — extra mail headers. Default: `{}`. The map's keys and values are passed through verbatim; the header names are case-insensitive in SMTP.
+- `attachments` (optional, array) — up to `10` items. Default: `[]`. Each entry uses the attachment object below.
+- `idempotencyKey` (optional, string) — opaque key, max `255` characters. If supplied, Relanto rejects a second `POST /api/v1/send` for the same `(applicationId, idempotencyKey)` while the original job is alive. Reusing the key after the previous job is deleted is allowed.
+- `deliveryMode` (optional, string) — `"queued"` or `"direct"`. Default: `"queued"`. With `"queued"`, the API accepts the job and returns immediately. With `"direct"`, the API waits for the SMTP attempt and returns the final status.
+
+Attachment fields (each entry under `attachments`):
+
+- `filename` (required, string) — file name shown to recipients.
+- `contentType` (required, string) — MIME type, e.g. `text/plain`, `application/pdf`.
+- `contentBase64` (required, string) — base64-encoded payload. Max decoded size per attachment: `5 MiB`. The sum of decoded sizes across all attachments must not exceed `20 MiB`.
+- `contentDisposition` (optional, string) — `"attachment"` or `"inline"`. Default: `"attachment"`.
+- `cid` (optional, string) — content-ID, useful when referencing inline attachments from the HTML body.
+
+Request example (queued, no attachments):
+
+```json
+{
+  "messageId": "<order-42@your-domain.example>",
+  "to": "customer@example.com",
+  "subject": "Order confirmation",
+  "html": "<p>Thanks for your order.</p>",
+  "text": "Thanks for your order.",
+  "deliveryMode": "queued"
+}
+```
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "jobId": "job_…",
+  "status": "queued",
+  "acceptedAt": "2026-06-05T08:12:33.000Z"
+}
+```
+
+Response on direct send that did not end in `sent` (HTTP `409`):
+
+```json
+{
+  "ok": false,
+  "jobId": "job_…",
+  "status": "failed",
+  "acceptedAt": "2026-06-05T08:12:33.000Z"
+}
+```
+
+Important request behavior:
+
+- `from` is the only address that is server-side email-validated.
+- Bodies must be present in both `html` and `text`; multipart parts are derived from the values.
+- A direct send returns inside the same request. Use it sparingly because it ties up the calling thread for the duration of the SMTP attempt.
+
+Important response behavior:
+
+- Queued delivery means the request was accepted and a job exists in status `queued`.
+- Direct delivery is only a real success when the response returns `ok: true` and `status: "sent"`.
+- If direct delivery ends with `failed`, `retry_scheduled`, or `delivery_uncertain`, the API returns `ok: false` and HTTP `409`.
+- Common error codes: `400` for validation, `403` if a system-admin session calls this endpoint, `409` for a non-successful direct send, `413` for oversized attachments.
+
+## Endpoint: Read application SMTP config
+
+- `GET /api/v1/config`
+
+Expected token scope: `readConfig`. Only application tokens can use this endpoint. System-admin sessions and application-admin tokens are rejected with `403`.
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "config": {
+    "id": "cfg_…",
+    "applicationId": "app_…",
+    "applicationAdminId": "appadm_…",
+    "applicationLabel": "My Application",
+    "name": "Primary SMTP",
+    "host": "smtp.example.com",
+    "port": 587,
+    "secure": false,
+    "requireTls": true,
+    "minTlsVersion": "TLSv1.2",
+    "connectionTimeoutMs": 10000,
+    "greetingTimeoutMs": 10000,
+    "socketTimeoutMs": 20000,
+    "defaultFromAddress": "no-reply@your-domain.example",
+    "hasPassword": true,
+    "disabledAt": null,
+    "lockedAt": null,
+    "createdAt": "2026-01-15T09:00:00.000Z",
+    "updatedAt": "2026-04-02T12:30:00.000Z"
+  }
+}
+```
+
+Important response behavior:
+
+- The response never includes `username`.
+- The response never includes `password`, `passwordEncrypted`, or any other secret material.
+- `hasPassword` is a boolean indicator that lets the client verify configuration completeness without exposing the secret itself.
+
+## Endpoint: List jobs
+
+- `GET /api/v1/jobs`
+
+Expected token scope: `readStatus`. Application tokens see only jobs of their own application. Application-admin tokens see jobs across the applications they administer. System-admin sessions see all jobs.
+
+Query parameters (all optional):
+
+- `applicationId` (string) — restrict by application. Ignored when the caller is an application token (the token's own applicationId is enforced server-side).
+- `configId` (string) — restrict by SMTP config.
+- `createdAfter` (ISO 8601 timestamp) — only jobs created strictly after this instant.
+- `createdBefore` (ISO 8601 timestamp) — only jobs created strictly before this instant.
+- `messageId` (string) — exact match on the mail Message-ID.
+- `status` (string) — one of `queued`, `paused`, `processing`, `sent`, `failed`, `retry_scheduled`, `delivery_uncertain`, `cancelled`.
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "jobs": [
+    {
+      "id": "job_…",
+      "applicationId": "app_…",
+      "configId": "cfg_…",
+      "tokenId": "tok_…",
+      "tokenKind": "application",
+      "messageId": "<order-42@your-domain.example>",
+      "from": "no-reply@your-domain.example",
+      "to": "customer@example.com",
+      "subject": "Order confirmation",
+      "deliveryMode": "queued",
+      "status": "sent",
+      "retryCount": 0,
+      "createdAt": "2026-06-05T08:12:33.000Z",
+      "updatedAt": "2026-06-05T08:12:35.000Z",
+      "acceptedAt": "2026-06-05T08:12:33.500Z",
+      "processingStartedAt": "2026-06-05T08:12:34.000Z",
+      "sentAt": "2026-06-05T08:12:35.000Z",
+      "attachments": [
+        { "filename": "invoice.pdf", "contentType": "application/pdf", "contentDisposition": "attachment" }
+      ]
+    }
+  ]
+}
+```
+
+Important response behavior:
+
+- The status view never returns `html`, `text`, full attachment payloads, or extra headers. Only filename, content type, content disposition, and optional `cid` are exposed per attachment.
+- `lastError`, `errorCategory`, `errorCode`, `errorPermanent`, `providerResponseCode`, `providerMessageId`, and `nextRetryAt` are present when the job has progressed through retry/failure handling and have not been redacted by retention.
+- Jobs that have been deleted (`deletedAt` set) are filtered out of the list.
+
+## Endpoint: Read job
+
+- `GET /api/v1/jobs/:jobId`
+
+Expected token scope: `readStatus`. Tokens may only read jobs they own; foreign reads return `403`.
+
+Path parameter:
+
+- `jobId` (required, string) — the job identifier returned by `POST /api/v1/send`.
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "job": { "id": "job_…", "status": "sent", "…": "…" }
+}
+```
+
+The `job` object follows the same redacted shape as items in the list endpoint above.
+
+Error codes:
+
+- `404` if the job does not exist or has been deleted.
+- `403` if the token cannot read this job.
+
+## Endpoint: Read delivery status
+
+- `GET /api/v1/jobs/:jobId/delivery-status`
+
+Expected token scope: `readStatus`. Tokens may only read jobs they own; foreign existing jobs return `403`.
+
+Path parameter:
+
+- `jobId` (required, string) — the job identifier returned by `POST /api/v1/send`.
+
+Request body: none.
+
+Response on pending/queued job (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "status": {
+    "jobId": "job_…",
+    "deliveryStatus": "queued",
+    "jobStatus": "queued",
+    "terminal": false,
+    "retryCount": 0,
+    "updatedAt": "2026-06-05T08:12:33.000Z"
+  }
+}
+```
+
+Response on delivered job (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "status": {
+    "jobId": "job_…",
+    "deliveryStatus": "delivered",
+    "jobStatus": "sent",
+    "terminal": true,
+    "providerMessageId": "provider-message-id",
+    "retryCount": 0,
+    "sentAt": "2026-06-05T08:12:35.000Z",
+    "updatedAt": "2026-06-05T08:12:35.000Z"
+  }
+}
+```
+
+Response on bounced or rejected job (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "status": {
+    "jobId": "job_…",
+    "deliveryStatus": "bounced",
+    "jobStatus": "failed",
+    "terminal": true,
+    "failureCategory": "unknown_recipient",
+    "failureReason": "Mailbox unavailable",
+    "errorCode": "EENVELOPE",
+    "providerResponseCode": 550,
+    "retryCount": 1,
+    "updatedAt": "2026-06-05T08:12:36.000Z"
+  }
+}
+```
+
+Response on permanently failed uncertain delivery (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "status": {
+    "jobId": "job_…",
+    "deliveryStatus": "permanently_failed",
+    "jobStatus": "delivery_uncertain",
+    "terminal": true,
+    "failureCategory": "delivery_uncertain",
+    "retryCount": 5,
+    "updatedAt": "2026-06-05T08:20:00.000Z"
+  }
+}
+```
+
+Response for unknown, deleted or retention-purged job (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "status": {
+    "jobId": "job_unknown",
+    "deliveryStatus": "unknown",
+    "terminal": true,
+    "failureCategory": "expired_or_unknown",
+    "failureReason": "The job is unknown, expired, deleted or already purged by retention."
+  }
+}
+```
+
+Important response behavior:
+
+- Polling is safe and idempotent. The endpoint does not mutate the queue.
+- The response never returns `from`, `to`, `subject`, `html`, `text`, headers, raw attachment payloads, raw SMTP transcripts, or provider payloads.
+- `deliveryStatus` uses a client-facing model: `queued`, `processing`, `retrying`, `delivered`, `bounced`, `rejected`, `permanently_failed`, `cancelled`, `unknown`, `expired`.
+- `terminal` is `false` for `queued`, `processing`, and `retrying`; it is `true` for all final success, failure, cancelled, unknown, or expired states.
+- Unknown, deleted, and retention-purged jobs are intentionally represented as `unknown` with `failureCategory: "expired_or_unknown"` because purged jobs no longer have tombstone data.
+- Job status remains queryable only while the job row is retained. The exact window depends on the token retention policy captured when the job was created: `retainSentJobsDays`, `retainFailedJobsDays`, and `retainErrorDetailsDays`. After purge, the API can no longer distinguish an expired job from a never-known `jobId`.
+- Failure diagnostics are redacted and may be absent after `retainErrorDetailsDays` has elapsed. Terminal failure still remains visible until the job itself is purged.
+
+## Endpoint: Batch read delivery statuses
+
+- `POST /api/v1/jobs/delivery-status`
+
+Expected token scope: `readStatus`. Tokens may only read jobs they own; foreign existing jobs return `403`.
+
+Request body fields:
+
+- `jobIds` (required, array of strings) — non-empty list of known job IDs. Maximum: `50` entries. The response preserves request order and returns one status object per input entry, including duplicates.
+
+Request example:
+
+```json
+{
+  "jobIds": ["job_1", "job_2", "job_missing"]
+}
+```
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "statuses": [
+    { "jobId": "job_1", "deliveryStatus": "queued", "terminal": false, "jobStatus": "queued", "updatedAt": "2026-06-05T08:12:33.000Z" },
+    { "jobId": "job_2", "deliveryStatus": "delivered", "terminal": true, "jobStatus": "sent", "updatedAt": "2026-06-05T08:12:35.000Z" },
+    { "jobId": "job_missing", "deliveryStatus": "unknown", "terminal": true, "failureCategory": "expired_or_unknown" }
+  ]
+}
+```
+
+Important response behavior:
+
+- This endpoint is for polling locally known `jobId`s. It does not list failed jobs for an account, customer, application, or SMTP config.
+- Batches above `50` entries are rejected with `400`.
+- Repeated polling of the same batch is safe and idempotent.
+
+## Endpoint: Delete job
+
+- `DELETE /api/v1/jobs/:jobId`
+
+Expected token scope: `manageApplications`. Tokens may only delete jobs they own.
+
+Path parameter:
+
+- `jobId` (required, string).
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true }
+```
+
+Important behavior:
+
+- Jobs in status `processing` cannot be deleted (`409 Processing jobs cannot be deleted`).
+- Jobs in status `sent` cannot be deleted (`409 Sent jobs cannot be deleted`).
+- A successful delete sets `deletedAt` and transitions the job to `cancelled`; the same `idempotencyKey` may then be reused for a fresh send.
+
+## Endpoint: Pause job
+
+- `POST /api/v1/jobs/:jobId/pause`
+
+Expected token scope: `manageApplications`.
+
+Path parameter:
+
+- `jobId` (required, string).
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true, "job": { "id": "job_…", "status": "paused", "…": "…" } }
+```
+
+Errors:
+
+- `409 Only pending jobs can be paused` if the job is not in a pausable state.
+
+## Endpoint: Resume job
+
+- `POST /api/v1/jobs/:jobId/resume`
+
+Expected token scope: `manageApplications`.
+
+Path parameter:
+
+- `jobId` (required, string).
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true, "job": { "id": "job_…", "status": "queued", "…": "…" } }
+```
+
+Errors:
+
+- `409 Only paused jobs can be resumed`.
+
+## Endpoint: Retry job
+
+- `POST /api/v1/jobs/:jobId/retry`
+
+Expected token scope: `manageApplications`.
+
+Path parameter:
+
+- `jobId` (required, string).
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true, "job": { "id": "job_…", "status": "queued", "retryCount": 1, "…": "…" } }
+```
+
+Errors:
+
+- `409 Only failed or uncertain jobs can be retried manually`.
+
+## Endpoint: List applications
+
+- `GET /api/v1/applications`
+
+Expected token scope: `manageApplications`. Only application-admin tokens (or system-admin sessions) may use this endpoint; application tokens are rejected with `403`.
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "applications": [
+    {
+      "id": "app_…",
+      "applicationAdminId": "appadm_…",
+      "label": "My Application",
+      "createdAt": "2026-01-15T09:00:00.000Z",
+      "updatedAt": "2026-01-15T09:00:00.000Z"
+    }
+  ]
+}
+```
+
+Important response behavior:
+
+- Application-admin tokens see only the applications belonging to their own admin.
+- System-admin sessions see all applications.
+
+## Endpoint: Create application
+
+- `POST /api/v1/applications`
+
+Expected token scope: `manageApplications`. Application tokens cannot create applications.
+
+Request body fields:
+
+- `label` (required, string) — human-readable label for the application.
+- `applicationAdminId` (required for system-admin sessions, string) — the admin who will own the new application. For application-admin tokens this field is ignored: the server uses the token's own admin id.
+
+Request example (system-admin session):
+
+```json
+{
+  "applicationAdminId": "appadm_01HV…",
+  "label": "Customer notifications"
+}
+```
+
+Response on success (HTTP `201`):
+
+```json
+{
+  "ok": true,
+  "application": {
+    "id": "app_…",
+    "applicationAdminId": "appadm_…",
+    "label": "Customer notifications",
+    "createdAt": "2026-06-05T08:12:33.000Z",
+    "updatedAt": "2026-06-05T08:12:33.000Z"
+  }
+}
+```
+
+## Endpoint: List SMTP configs
+
+- `GET /api/v1/configs`
+
+Expected token scope: `manageApplications`. Application tokens see only the config of their bound application. Application-admin tokens see configs across the applications they administer.
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "configs": [
+    { "id": "cfg_…", "applicationId": "app_…", "applicationAdminId": "appadm_…", "applicationLabel": "…", "name": "Primary SMTP", "username": "mailer@example.com", "hasPassword": true, "…": "…" }
+  ]
+}
+```
+
+The admin-side list and read endpoints expose `username` and `hasPassword`. They never expose `password` or `passwordEncrypted`. The application-side `GET /api/v1/config` is the only read endpoint that additionally suppresses `username`.
+
+## Endpoint: Create SMTP config
+
+- `POST /api/v1/configs`
+
+Expected token scope: `manageApplications`. Application tokens cannot create configs. Application-admin tokens may only target applications they own.
+
+Request body fields (Zod schema `upsertSmtpConfigInputSchema`):
+
+- `applicationId` (required, string) — the application that should own the new config.
+- `name` (required, string) — admin-side label of the config, e.g. `"Primary SMTP"`.
+- `host` (required, string) — hostname or IP. Must not contain a scheme (no `://`) or a path component (no `/`).
+- `port` (required, integer) — TCP port, between `1` and `65535`.
+- `username` (required, string) — SMTP login user. The full username is never exposed via `GET /api/v1/config` or `GET /api/v1/configs/:configId`.
+- `defaultFromAddress` (required, email) — used by `POST /api/v1/send` when the client omits `from`.
+- `password` (optional, string) — SMTP login password. Stored encrypted at rest.
+- `secure` (optional, boolean) — implicit TLS on connect (SMTPS). Default: `false`.
+- `requireTls` (optional, boolean) — require STARTTLS. Default: `true`.
+- `minTlsVersion` (optional, string) — `"TLSv1.2"` or `"TLSv1.3"`. Default: `"TLSv1.2"`.
+- `connectionTimeoutMs` (optional, integer) — between `100` and `120000`. Default: `10000`.
+- `greetingTimeoutMs` (optional, integer) — between `100` and `120000`. Default: `10000`.
+- `socketTimeoutMs` (optional, integer) — between `100` and `120000`. Default: `20000`.
+
+Request example:
+
+```json
+{
+  "applicationId": "app_01HV…",
+  "name": "Primary SMTP",
+  "host": "smtp.example.com",
+  "port": 587,
+  "username": "mailer@example.com",
+  "password": "<secret>",
+  "defaultFromAddress": "no-reply@your-domain.example",
+  "requireTls": true,
+  "secure": false,
+  "minTlsVersion": "TLSv1.2"
+}
+```
+
+Response on success (HTTP `201`):
+
+```json
+{
+  "ok": true,
+  "config": { "id": "cfg_…", "applicationId": "app_…", "name": "Primary SMTP", "…": "…" }
+}
+```
+
+## Endpoint: Read SMTP config
+
+- `GET /api/v1/configs/:configId`
+
+Expected token scope: `manageApplications`. Application-admin tokens may only read configs of applications they own; cross-tenant reads return `403`.
+
+Path parameter:
+
+- `configId` (required, string).
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true, "config": { "id": "cfg_…", "applicationId": "app_…", "name": "…", "username": "mailer@example.com", "hasPassword": true, "…": "…" } }
+```
+
+This admin-side read exposes `username` and `hasPassword`. It never returns `password` or `passwordEncrypted`. Use `GET /api/v1/config` from an application token when you specifically want the username-less variant.
+
+Errors:
+
+- `404 SMTP config not found`.
+
+## Endpoint: Update SMTP config
+
+- `PUT /api/v1/configs/:configId`
+
+Expected token scope: `manageApplications`. Application-admin tokens may only update configs of applications they own.
+
+Path parameter:
+
+- `configId` (required, string).
+
+Request body fields: identical to `POST /api/v1/configs`.
+
+Constraints:
+
+- `applicationId` cannot be changed once the config exists (`409 SMTP config application cannot be changed`).
+- If the config is locked, the request is rejected (`423 SMTP config is locked`).
+- Omitting `password` keeps the previously stored password. Sending a non-empty `password` replaces it; sending an empty `password` is rejected by validation.
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true, "config": { "id": "cfg_…", "…": "…" } }
+```
+
+## Endpoint: Validate SMTP config
+
+- `POST /api/v1/configs/:configId/validate`
+
+Expected token scope: `validate`.
+
+Path parameter:
+
+- `configId` (required, string).
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "result": {
+    "ok": true,
+    "host": "smtp.example.com",
+    "port": 587,
+    "secure": false,
+    "requireTls": true,
+    "minTlsVersion": "TLSv1.2",
+    "resolvedTargets": ["198.51.100.10"],
+    "attempts": [
+      { "phase": "verify", "address": "198.51.100.10", "family": 4, "outcome": "succeeded" }
+    ]
+  }
+}
+```
+
+Response on a validation failure (HTTP `200`, but `result.ok: false`):
+
+```json
+{
+  "ok": true,
+  "result": {
+    "ok": false,
+    "category": "auth",
+    "permanent": true,
+    "message": "SMTP login failed",
+    "debug": { "…": "…" }
+  }
+}
+```
+
+Important behavior:
+
+- The outer `ok: true` only means the validation ran. Inspect `result.ok` for the actual SMTP outcome.
+- Private network targets are rejected before any connection attempt.
+
+## Endpoint: List tokens for a config
+
+- `GET /api/v1/configs/:configId/tokens`
+
+Expected token scope: `manageTokens`. Tokens may only list tokens for configs they own.
+
+Path parameter:
+
+- `configId` (required, string).
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "tokens": [
+    {
+      "id": "tok_…",
+      "applicationId": "app_…",
+      "configId": "cfg_…",
+      "clientId": "appcli_…",
+      "label": "Production sender",
+      "scopes": ["send", "readStatus"],
+      "kind": "application",
+      "createdAt": "2026-01-15T09:00:00.000Z",
+      "updatedAt": "2026-01-15T09:00:00.000Z",
+      "lastUsedAt": "2026-06-05T07:00:00.000Z",
+      "revokedAt": null
+    }
+  ]
+}
+```
+
+Read endpoints never include `clientSecret`.
+
+## Endpoint: Create token for a config
+
+- `POST /api/v1/configs/:configId/tokens`
+
+Expected token scope: `manageTokens`. The `:configId` path parameter scopes the resulting application token to that SMTP config and its application.
+
+Path parameter:
+
+- `configId` (required, string).
+
+Request body fields:
+
+- `principalId` (required, string) — chooses which kind of token to create. Pass the application id (`app_…`) to issue an application token bound to the config's application. Pass the application-admin id (`appadm_…`) of the admin that owns the config's application to issue an application-admin token. Any other value is rejected.
+- `label` (required, string) — human-readable label, shown in the admin frontend and on the metadata API.
+- `scopes` (required, array of strings) — at least one of `send`, `validate`, `readStatus`, `readConfig`, `manageTokens`, `manageApplications`. Application tokens reject management scopes; pick scopes that match the intended integration.
+- `retainSentJobsDays` (optional, integer) — between `1` and `365`. Default: `30`. Lifetime for sent jobs created by this token.
+- `retainFailedJobsDays` (optional, integer) — between `1` and `365`. Default: `30`. Lifetime for failed/cancelled jobs created by this token.
+- `retainAttachmentsDays` (optional, integer) — between `1` and `365`. Default: `30`. Lifetime for attachment payloads before they are redacted.
+- `retainErrorDetailsDays` (optional, integer) — between `1` and `365`. Default: `30`. Lifetime for error details before they are redacted.
+
+Request example (application token):
+
+```json
+{
+  "principalId": "app_01HV…",
+  "label": "Production sender",
+  "scopes": ["send", "readStatus"],
+  "retainSentJobsDays": 14,
+  "retainFailedJobsDays": 30,
+  "retainAttachmentsDays": 14,
+  "retainErrorDetailsDays": 30
+}
+```
+
+Response on success (HTTP `201`):
+
+```json
+{
+  "ok": true,
+  "token": {
+    "id": "tok_…",
+    "applicationId": "app_…",
+    "configId": "cfg_…",
+    "clientId": "appcli_…",
+    "clientSecret": "relanto_secret_…",
+    "label": "Production sender",
+    "scopes": ["send", "readStatus"],
+    "kind": "application",
+    "createdAt": "2026-06-05T08:12:33.000Z",
+    "updatedAt": "2026-06-05T08:12:33.000Z"
+  }
+}
+```
+
+The `clientSecret` is only returned in this response. Store it immediately on the calling side.
+
+Errors:
+
+- `400` if `scopes` is empty or contains an unknown scope.
+- `409 Application requires an SMTP config before tokens can be issued` if the application has no config yet.
+- `423 SMTP config is locked` if the SMTP config is locked.
+
+## Endpoint: Read token
+
+- `GET /api/v1/tokens/:tokenId`
+
+Expected token scope: `manageTokens`. Tokens may only read tokens they own.
+
+Path parameter:
+
+- `tokenId` (required, string).
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true, "token": { "id": "tok_…", "clientId": "…", "scopes": ["…"], "kind": "application", "…": "…" } }
+```
+
+Read endpoints never include `clientSecret`.
+
+## Endpoint: Delete token
+
+- `DELETE /api/v1/tokens/:tokenId`
+
+Expected token scope: `manageTokens`. Tokens may only delete tokens they own.
+
+Path parameter:
+
+- `tokenId` (required, string).
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true }
+```
+
+Important behavior:
+
+- Deletion is irreversible. Existing access JWTs issued from this token continue to fail authentication immediately because the token row is gone.
+
+## Endpoint: Rotate token
+
+- `POST /api/v1/tokens/:tokenId/rotate`
+
+Expected token scope: `manageTokens`. Tokens may only rotate tokens they own.
+
+Path parameter:
+
+- `tokenId` (required, string).
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{
+  "ok": true,
+  "token": {
+    "id": "tok_…",
+    "clientId": "appcli_…",
+    "clientSecret": "relanto_secret_…",
+    "label": "Production sender",
+    "scopes": ["send", "readStatus"],
+    "kind": "application",
+    "…": "…"
+  }
+}
+```
+
+Important behavior:
+
+- Rotation generates a new `clientSecret` and invalidates all previously issued JWTs immediately.
+- The new `clientSecret` is only returned in this response. Store it immediately and roll over the calling client.
+
+## Endpoint: Revoke token
+
+- `POST /api/v1/tokens/:tokenId/revoke`
+
+Expected token scope: `manageTokens`. Tokens may only revoke tokens they own.
+
+Path parameter:
+
+- `tokenId` (required, string).
+
+Request body: none.
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true, "token": { "id": "tok_…", "revokedAt": "2026-06-05T08:12:33.000Z", "…": "…" } }
+```
+
+Important behavior:
+
+- Revocation sets `revokedAt` and rejects subsequent token-exchange and bearer requests.
+- A revoked token cannot be unrevoked. If you need active credentials again, create a new token.
+
+## Endpoint: Update token scopes
+
+- `PATCH /api/v1/tokens/:tokenId/scopes`
+
+Expected token scope: `manageTokens`. Tokens may only update tokens they own.
+
+Path parameter:
+
+- `tokenId` (required, string).
+
+Request body fields:
+
+- `scopes` (required, array of strings) — non-empty list of scopes. Same validation rules as on token creation.
+
+Request example:
+
+```json
+{ "scopes": ["send", "readStatus", "readConfig"] }
+```
+
+Response on success (HTTP `200`):
+
+```json
+{ "ok": true, "token": { "id": "tok_…", "scopes": ["send", "readStatus", "readConfig"], "…": "…" } }
+```
+
+Errors:
+
+- `400` for empty or unknown scopes.
+- `400 Application tokens cannot include management scopes` if the token is an application token and the new scope set includes `manageTokens` or `manageApplications`.
+
+## Payload limits for send-mail requests
+
+Relanto enforces server-side limits before persisting a job:
+
+- HTML body: max `200000` characters
+- Text body: max `100000` characters
+- Attachments: max `10`
+- Single attachment size: max `5 MiB` decoded
+- Total decoded attachment size: max `20 MiB`
+
+Expect oversized payloads to fail with business-level 4xx responses (`400` for body/header size, `413` for attachment size).
+
+## Error handling
+
+All API endpoints return JSON error responses.
+
+Status code semantics:
+
+- `400`: invalid payload or unsupported request shape (Zod validation, malformed JSON, missing `applicationId` etc.).
+- `401`: missing or invalid authentication (no bearer, expired JWT, wrong `client_secret`).
+- `403`: scope or ownership violation (including a valid token that lacks the required scope at the auth boundary), or a system-admin session calling an endpoint that requires an application token.
+- `404`: unknown resource (`Job not found`, `Token not found`, `SMTP config not found`, `Application not found`).
+- `405`: unsupported HTTP method on the route.
+- `409`: valid request shape, but domain rule violation or non-successful direct-send result.
+- `413`: attachment or payload size issue.
+- `423`: resource is locked (SMTP config lock).
+- `500`: unexpected server error.
+
+Error response shape:
+
+```json
+{ "ok": false, "error": "Human-readable error message" }
+```
+
+Validation responses additionally carry `issues`:
+
+```json
+{
+  "ok": false,
+  "error": "Validation failed",
+  "issues": [
+    { "path": ["messageId"], "message": "messageId is required" }
+  ]
+}
+```
+
+Always check both:
+
+- the HTTP status
+- the JSON field `ok`
+
+Do not treat `200` alone as sufficient proof of successful mail delivery unless you are explicitly handling queued delivery semantics.
+
+## Job status values
+
+The `status` field on jobs (and the `GET /api/v1/jobs?status=…` filter) uses the following values:
+
+- `queued` — accepted, waiting for the worker to pick it up.
+- `processing` — currently being delivered by the worker.
+- `paused` — held back from delivery by an operator or admin call. Resume to put it back in `queued`.
+- `retry_scheduled` — failed once and waiting for the next retry attempt. `nextRetryAt` shows the scheduled time.
+- `sent` — delivery attempt was accepted by the SMTP server.
+- `failed` — delivery failed permanently or no further retries are scheduled. `errorCategory`, `errorPermanent`, and `lastError` describe the cause.
+- `delivery_uncertain` — the transport accepted the message but no clear positive confirmation was received. Treat as a soft failure until a retry succeeds.
+- `cancelled` — the job was deleted before delivery finished. Idempotency keys can be reused.
+
+## Queue semantics
+
+Queued delivery creates a job and returns immediately.
+
+Direct delivery still works through the same job model, but the API waits for the job result in the same request.
+
+Useful status values include `queued`, `processing`, `paused`, `retry_scheduled`, `sent`, `failed`, `delivery_uncertain`, `cancelled` (see above for details).
+
+## Idempotency
+
+`POST /api/v1/send` honors an optional `idempotencyKey`:
+
+- Keys are scoped to `(applicationId, idempotencyKey)`.
+- A second send with the same key while the original job exists is rejected.
+- After the original job is deleted (`DELETE /api/v1/jobs/:jobId` or retention purge), the key may be reused for a fresh send.
+- The key is opaque, max `255` characters, trimmed before storage. Choose a value that uniquely identifies the business-level action you are protecting against duplicates.
+
+## Frontend note
+
+Relanto also has an admin frontend for operators. That frontend is used to:
+
+- configure SMTP access
+- create and rotate tokens
+- lock and unlock SMTP configurations
+- inspect recent jobs
+- review the structured log of recent 4xx API failures
+- perform operational actions
+
+If your task is application integration, prefer the API and do not assume that frontend-only workflows expose additional secrets.

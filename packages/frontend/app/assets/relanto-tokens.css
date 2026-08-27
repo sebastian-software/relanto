@@ -1,0 +1,11 @@
+:root {
+  --relanto-font-body:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --relanto-font-display:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --relanto-font-accent: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --relanto-color-night: #17243a;
+  --relanto-color-base: #304c67;
+  --relanto-color-bright: #b88736;
+  --relanto-color-paper: #f4efe2;
+}

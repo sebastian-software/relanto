@@ -1,0 +1,36 @@
+{
+  "name": "@relanto/backend",
+  "version": "0.19.8",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/worker.ts"
+  },
+  "scripts": {
+    "lint": "pnpm lint:oxlint && pnpm lint:eslint",
+    "openapi:generate": "jiti scripts/generate-openapi.ts",
+    "lint:oxlint": "oxlint src --ignore-pattern src/**/*.test.mjs",
+    "lint:eslint": "eslint . --no-warn-ignored",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "nodemailer": "^9.0.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.13.1",
+    "@types/nodemailer": "^8.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.6.0",
+    "eslint-config-setup": "^0.4.0",
+    "oxlint": "^1.73.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

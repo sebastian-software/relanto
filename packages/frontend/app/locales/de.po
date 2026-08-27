@@ -1,0 +1,271 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-04-01 10:32+0200\n"
+"PO-Revision-Date: 2026-04-01 10:32+0200\n"
+"Last-Translator: \n"
+"Language: de\n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: palamedes\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Actions"
+msgstr "Aktionen"
+
+msgid "Application"
+msgstr "Applikation"
+
+msgid "Application Admin"
+msgstr "Anwendungsverantwortliche"
+
+msgid "Configured Mailers"
+msgstr "Konfigurierte Mailer"
+
+msgid "Connection timeout ms"
+msgstr "Verbindungs-Timeout in ms"
+
+msgid "Continue with Pocket ID"
+msgstr "Mit Pocket ID fortfahren"
+
+msgid "Create principal"
+msgstr "Principal anlegen"
+
+msgid "Create SMTP config"
+msgstr "SMTP-Konfiguration anlegen"
+
+msgid "Create token"
+msgstr "Token anlegen"
+
+msgid "Create config"
+msgstr "Konfiguration anlegen"
+
+msgid "Created"
+msgstr "Erstellt"
+
+msgid "Define credentials, TLS posture and timeout behavior for outbound "
+"delivery."
+msgstr "Lege Zugangsdaten, TLS-Vorgaben und Timeout-Verhalten fuer den "
+"ausgehenden Versand fest."
+
+msgid "Delete"
+msgstr "Loeschen"
+
+msgid "External mailer control plane"
+msgstr "Steuerzentrale fuer den externen Mailer"
+
+msgid "External reference"
+msgstr "Externe Referenz"
+
+msgid "Greeting timeout ms"
+msgstr "Greeting-Timeout in ms"
+
+msgid "Host"
+msgstr "Host"
+
+msgid "Identity"
+msgstr "Identitaet"
+
+msgid "Infrastructure"
+msgstr "Infrastruktur"
+
+msgid "Issue token"
+msgstr "Token ausstellen"
+
+msgid "Issued tokens"
+msgstr "Ausgestellte Tokens"
+
+msgid "Issued Tokens"
+msgstr "Ausgestellte Tokens"
+
+msgid "Label"
+msgstr "Bezeichnung"
+
+msgid "Localized control plane"
+msgstr "Lokalisierte Steuerzentrale"
+
+msgid "Logout"
+msgstr "Abmelden"
+
+msgid "Mailer system admin"
+msgstr "Mailer-Systemadministration"
+
+msgid "Manage own tokens"
+msgstr "Eigene Tokens verwalten"
+
+msgid "Manage tokens"
+msgstr "Tokens verwalten"
+
+msgid "Min TLS version"
+msgstr "Minimale TLS-Version"
+
+msgid "Missing Pocket ID configuration. Set POCKET_ID_ISSUER, "
+"POCKET_ID_CLIENT_ID and outside local development "
+"POCKET_ID_REDIRECT_URI."
+msgstr "Pocket-ID-Konfiguration fehlt. Setze POCKET_ID_ISSUER, "
+"POCKET_ID_CLIENT_ID und ausserhalb lokaler Entwicklung "
+"POCKET_ID_REDIRECT_URI."
+
+msgid "Name"
+msgstr "Name"
+
+msgid "OIDC sign-in, scoped tokens and persistent delivery queue"
+msgstr "OIDC-Login, gescopte Tokens und persistente Versand-Queue"
+
+msgid "Only users in the Pocket ID group superadmin can access the "
+"administration interface."
+msgstr "Nur Nutzer in der Pocket-ID-Gruppe superadmin koennen auf die "
+"Administrationsoberflaeche zugreifen."
+
+msgid "Open Jobs"
+msgstr "Offene Jobs"
+
+msgid "Operations"
+msgstr "Betrieb"
+
+msgid "Password"
+msgstr "Passwort"
+
+msgid "Pause"
+msgstr "Pausieren"
+
+msgid "Port"
+msgstr "Port"
+
+msgid "Principal"
+msgstr "Principal"
+
+msgid "Read status"
+msgstr "Status lesen"
+
+msgid "Recent jobs"
+msgstr "Letzte Jobs"
+
+msgid "Recent queue activity with pause, retry and delete controls."
+msgstr "Aktuelle Queue-Aktivitaet mit Aktionen zum Pausieren, Wiederholen und "
+"Loeschen."
+
+msgid "Recipient"
+msgstr "Empfaenger"
+
+msgid "Register application admins and application identities before assigning "
+"scoped tokens."
+msgstr "Lege Anwendungsverantwortliche und Anwendungszugaenge an, bevor du "
+"gescopte Tokens zuweist."
+
+msgid "Relanto Mailer"
+msgstr "Relanto Mailer"
+
+msgid "Require TLS"
+msgstr "TLS erzwingen"
+
+msgid "Resume"
+msgstr "Fortsetzen"
+
+msgid "Retain attachments (days)"
+msgstr "Anhaenge aufbewahren (Tage)"
+
+msgid "Retain error details (days)"
+msgstr "Fehlerdetails aufbewahren (Tage)"
+
+msgid "Retain failed jobs (days)"
+msgstr "Fehlgeschlagene Jobs aufbewahren (Tage)"
+
+msgid "Retain sent jobs (days)"
+msgstr "Versendete Jobs aufbewahren (Tage)"
+
+msgid "Retry"
+msgstr "Erneut versuchen"
+
+msgid "Revoke"
+msgstr "Widerrufen"
+
+msgid "Rotate"
+msgstr "Rotieren"
+
+msgid "Scopes"
+msgstr "Berechtigungen"
+
+msgid "Scoped credentials for application admins and applications."
+msgstr "Eingeschraenkte Zugangsdaten fuer Anwendungsverantwortliche und "
+"Anwendungen."
+
+msgid "Secure connection"
+msgstr "Sichere Verbindung"
+
+msgid "Sebastian Software"
+msgstr "Sebastian Software"
+
+msgid "Send"
+msgstr "Senden"
+
+msgid "Sign in with Pocket ID."
+msgstr "Mit Pocket ID anmelden."
+
+msgid "Signed in as {userLabel}. Manage SMTP infrastructure, delegated "
+"principals, access tokens and delivery operations from one deliberately "
+"designed admin surface."
+msgstr "Angemeldet als {userLabel}. Verwalte SMTP-Infrastruktur, delegierte "
+"Principals, Zugriffstokens und Versandprozesse in einer gezielt "
+"gestalteten Administrationsoberflaeche."
+
+msgid "SMTP configs"
+msgstr "SMTP-Konfigurationen"
+
+msgid "Send rate limit per minute"
+msgstr "Send-Rate-Limit pro Minute"
+
+msgid "Socket timeout ms"
+msgstr "Socket-Timeout in ms"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Subject"
+msgstr "Betreff"
+
+msgid "Use 0 to disable the send rate limit for this application."
+msgstr "Mit 0 deaktivierst du das Send-Rate-Limit für diese Anwendung."
+
+msgid "System Admin"
+msgstr "Systemadministrator"
+
+msgid "System-admin only operational console"
+msgstr "Betriebskonsole nur fuer Systemadministratoren"
+
+msgid "{value0} is ready for an SMTP configuration and application tokens."
+msgstr "{value0} ist bereit fuer eine SMTP-Konfiguration und Anwendungs-Token."
+
+msgid "System Admin Session"
+msgstr "Sitzung des Systemadministrators"
+
+msgid "Transport"
+msgstr "Transport"
+
+msgid "Transport endpoints ready for validation, rotation and dispatch."
+msgstr "Transport-Endpunkte fuer Validierung, Rotation und Versand."
+
+msgid "{value0} can now receive admin tokens and own applications."
+msgstr "{value0} kann jetzt Administrationstoken erhalten und eigene "
+"Anwendungen verwalten."
+
+msgid "Type"
+msgstr "Typ"
+
+msgid "Update config"
+msgstr "Konfiguration aktualisieren"
+
+msgid "Update transport"
+msgstr "Transport aktualisieren"
+
+msgid "Username"
+msgstr "Benutzername"
+
+msgid "Validate"
+msgstr "Validieren"
+
+msgid "Validate config"
+msgstr "Konfiguration validieren"
