@@ -1,0 +1,55 @@
+name: Fehler melden
+description: Melde einen reproduzierbaren Fehler in Relanto.
+title: "[Fehler]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für deine Meldung. Veröffentliche hier keine Sicherheitslücken, Zugangsdaten, personenbezogenen Daten oder unbereinigten Produktionsprotokolle. Melde Sicherheitslücken ausschließlich vertraulich gemäß unserer [Sicherheitsrichtlinie](../security/policy).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Welche Relanto-Version oder welcher Commit ist betroffen?
+      placeholder: "z. B. 1.2.3 oder Commit abc1234"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Umgebung
+      description: In welcher Umgebung tritt der Fehler auf?
+      placeholder: "z. B. Betriebssystem, Browser und relevante Konfiguration"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Schritte zur Reproduktion
+      description: Beschreibe die kleinste verlässliche Abfolge, mit der sich der Fehler reproduzieren lässt.
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Erwartetes Verhalten
+      description: Was sollte stattdessen geschehen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Tatsächliches Verhalten
+      description: Was geschieht derzeit?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Bereinigte Nachweise
+      description: Füge bei Bedarf bereinigte Protokollauszüge, Screenshots oder ein minimales Beispiel hinzu.
+      placeholder: Keine Zugangsdaten, personenbezogenen Daten oder unbereinigten Produktionsprotokolle veröffentlichen.

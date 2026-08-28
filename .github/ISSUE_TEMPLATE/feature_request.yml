@@ -1,0 +1,34 @@
+name: Funktion vorschlagen
+description: Schlage eine Verbesserung oder neue Funktion für Relanto vor.
+title: "[Vorschlag]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für deinen Vorschlag. Veröffentliche hier keine Sicherheitslücken, Zugangsdaten, personenbezogenen Daten oder unbereinigten Produktionsprotokolle. Melde Sicherheitslücken ausschließlich vertraulich gemäß unserer [Sicherheitsrichtlinie](../security/policy).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Welches konkrete Problem soll gelöst werden?
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Anwendungsfall
+      description: Wer benötigt die Änderung und in welcher Situation?
+    validations:
+      required: true
+  - type: textarea
+    id: desired_outcome
+    attributes:
+      label: Gewünschtes Ergebnis
+      description: Wie sollte eine hilfreiche Lösung aus deiner Sicht aussehen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Erwogene Alternativen
+      description: Welche anderen Lösungen oder Umgehungen hast du bereits erwogen?

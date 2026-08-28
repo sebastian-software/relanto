@@ -59,6 +59,10 @@ pnpm agent:check
 
 Der Befehl prüft Linting, Formatierung, Typen, Build und Tests. Ergänze abhängig von deiner Änderung die gezielten Prüfungen aus der [Teststrategie](docs/developer-guide/testing.md).
 
+## Verhaltenskodex und vertrauliche Meldungen
+
+Beachte bei allen Beiträgen und Diskussionen den [Verhaltenskodex](CODE_OF_CONDUCT.md). Melde mögliche Verstöße gegen den Verhaltenskodex sowie vermutete Sicherheitslücken vertraulich an [security@sebastian-software.de](mailto:security@sebastian-software.de). Für Sicherheitsmeldungen gelten zusätzlich die Hinweise in [`SECURITY.md`](SECURITY.md).
+
 ## Lizenz der Beiträge
 
 Mit dem Einreichen eines Beitrags bestätigst du, dass du ihn unter der [MIT-Lizenz](LICENSE) des Projekts bereitstellen darfst. Relanto verlangt weder ein Contributor License Agreement (CLA) noch ein Developer Certificate of Origin (DCO) oder eine `Signed-off-by`-Zeile.
