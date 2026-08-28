@@ -104,6 +104,12 @@ if [ -f "${IMAGE_VERIFIER}" ]; then
     'the image verifier must check the synthetic runtime canary'
   require_pattern "${IMAGE_VERIFIER}" '(export|save|create|find|tar)' \
     'the image verifier must inspect the complete final filesystem inventory'
+  forbid_pattern "${IMAGE_VERIFIER}" 'grep[[:space:]]+-R' \
+    'the image verifier must not follow extracted rootfs symlinks into the host'
+  require_pattern "${IMAGE_VERIFIER}" 'find[[:space:]]+-P' \
+    'the image verifier must traverse the extracted rootfs without following symlinks'
+  require_pattern "${IMAGE_VERIFIER}" 'readlink' \
+    'the image verifier must inspect symlink targets as data'
   require_pattern "${IMAGE_VERIFIER}" 'expected_backend_inventory' \
     'the image verifier must compare the complete backend runtime inventory with an explicit allowlist'
   require_pattern "${IMAGE_VERIFIER}" '(inspect|Config|Env|Labels)' \
