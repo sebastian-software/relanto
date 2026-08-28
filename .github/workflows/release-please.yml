@@ -6,13 +6,11 @@ on:
       - main
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-  packages: write
-
 jobs:
   release-please:
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
 
     outputs:
@@ -29,6 +27,9 @@ jobs:
   publish-container:
     needs: release-please
     if: ${{ needs.release-please.outputs.frontend_release_created == 'true' }}
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-latest
 
     steps:
