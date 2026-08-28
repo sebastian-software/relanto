@@ -31,6 +31,9 @@ jobs:
       contents: read
       packages: write
     runs-on: ubuntu-latest
+    env:
+      IMAGE_REPOSITORY: ghcr.io/sebastian-software/relanto
+      SKOPEO_IMAGE: quay.io/skopeo/stable@sha256:4a16d57b37617a04b3d643079a477a2848efe892dffcdf0ce56df4262b65f810
 
     steps:
       - uses: actions/checkout@v7
@@ -43,43 +46,314 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
 
+      - id: release-tags
+        name: Resolve immutable and moving tags
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.frontend_tag_name }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${RELEASE_TAG}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "::error::Release tag is not a valid container tag."
+            exit 1
+          fi
+          short_sha="${GITHUB_SHA:0:7}"
+          echo "release=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "sha=sha-${short_sha}" >> "${GITHUB_OUTPUT}"
+
       - id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/sebastian-software/relanto
           tags: |
-            type=raw,value=${{ needs.release-please.outputs.frontend_tag_name }}
-            type=sha,prefix=sha-
-            type=raw,value=latest
+            type=raw,value=${{ steps.release-tags.outputs.release }}
+          labels: |
+            org.opencontainers.image.title=Relanto
+            org.opencontainers.image.source=https://github.com/sebastian-software/relanto
+            org.opencontainers.image.version=${{ steps.release-tags.outputs.release }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.relanto.release-tags=${{ steps.release-tags.outputs.release }},${{ steps.release-tags.outputs.sha }},latest
 
-      # Build the image locally and smoke-test it BEFORE pushing, so an image
-      # that crashes on boot is never published as `latest`. The subsequent push
-      # step reuses the buildx layer cache, so this does not build twice from
-      # scratch.
-      - name: Build image for smoke test (no push)
+      - name: Create and mask release-boundary canaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl rand -hex 32 > packages/frontend/.env.context-canary
+          openssl rand -hex 32 > packages/frontend/.relanto-runtime-canary
+          chmod 600 \
+            packages/frontend/.env.context-canary \
+            packages/frontend/.relanto-runtime-canary
+          sed 's/^/::add-mask::/' packages/frontend/.env.context-canary
+          sed 's/^/::add-mask::/' packages/frontend/.relanto-runtime-canary
+
+      - name: Prove the release context boundary
+        run: docker buildx build --platform linux/amd64 --target context-probe .
+
+      - name: Prove the release runtime boundary
+        run: |
+          docker buildx build \
+            --build-arg RELANTO_GIT_SHORT_SHA="${GITHUB_SHA}" \
+            --platform linux/amd64 \
+            --target runtime-probe \
+            .
+
+      # This is the only build that creates the releasable image. Every later
+      # gate reads or copies this exact OCI archive; credentials are never build
+      # inputs.
+      - name: Build the labeled linux/amd64 release OCI archive once
         uses: docker/build-push-action@v7
         with:
           build-args: |
             RELANTO_GIT_SHORT_SHA=${{ github.sha }}
           context: .
           file: ./Dockerfile
-          load: true
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=oci,dest=relanto-release.oci.tar
           platforms: linux/amd64
           provenance: false
           push: false
-          tags: relanto:smoke-test
+          tags: ghcr.io/sebastian-software/relanto:${{ steps.release-tags.outputs.release }}
 
-      - name: Smoke-test the container image
-        run: ./scripts/smoke-test-container.sh relanto:smoke-test
+      - name: Record archive bytes and selected OCI manifest digest
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release-tags.outputs.release }}
+        run: |
+          set -euo pipefail
+          skopeo() {
+            docker run --rm \
+              --volume "${PWD}:/work" \
+              --workdir /work \
+              --entrypoint skopeo \
+              "${SKOPEO_IMAGE}" "$@"
+          }
+          skopeo --version
+          sha256sum relanto-release.oci.tar > relanto-release.oci.tar.sha256
+          skopeo inspect \
+            --format '{{.Digest}}' \
+            "oci-archive:relanto-release.oci.tar:${RELEASE_TAG}" \
+            > relanto-release.source.digest
+          grep -E -q '^sha256:[0-9a-f]{64}$' relanto-release.source.digest
 
-      - uses: docker/build-push-action@v7
+      - name: Import the exact archive without rebuilding
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release-tags.outputs.release }}
+        run: |
+          set -euo pipefail
+          skopeo() {
+            docker run --rm \
+              --volume "${PWD}:/work" \
+              --volume /var/run/docker.sock:/var/run/docker.sock \
+              --workdir /work \
+              --entrypoint skopeo \
+              "${SKOPEO_IMAGE}" "$@"
+          }
+          skopeo copy \
+            "oci-archive:relanto-release.oci.tar:${RELEASE_TAG}" \
+            docker-daemon:relanto:release-candidate
+
+      - name: Verify and smoke-test the imported release image
+        run: |
+          set -euo pipefail
+          ./scripts/verify-container-image.sh \
+            relanto:release-candidate \
+            packages/frontend/.relanto-runtime-canary
+          ./scripts/smoke-test-container.sh relanto:release-candidate
+          SMOKE_TEST_OPERATOR_ASSETS_FIXTURE=true \
+            ./scripts/smoke-test-container.sh relanto:release-candidate
+          sha256sum --check relanto-release.oci.tar.sha256
+
+      - name: Prepare harmless Trivy bootstrap target
+        run: mkdir .trivy-bootstrap-empty
+
+      - name: Install pinned Trivy CLI
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          build-args: |
-            RELANTO_GIT_SHORT_SHA=${{ github.sha }}
-          context: .
-          file: ./Dockerfile
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
-          provenance: false
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          cache: true
+          exit-code: 1
+          hide-progress: true
+          scan-ref: .trivy-bootstrap-empty
+          scan-type: fs
+          scanners: secret
+          version: v0.70.0
+
+      - name: Prove Trivy with a protected control and scan the release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          trivy --version
+
+          control_root="$(mktemp -d "${RUNNER_TEMP}/relanto-trivy-control.XXXXXX")"
+          release_scan_root="$(mktemp -d "${RUNNER_TEMP}/relanto-trivy-release-root.XXXXXX")"
+          release_scan_log="$(mktemp "${RUNNER_TEMP}/relanto-trivy-release.XXXXXX")"
+          cleanup() {
+            rm -rf -- "${control_root}"
+            rm -rf -- "${release_scan_root}"
+            rm -f -- "${release_scan_log}"
+          }
+          trap cleanup EXIT
+          chmod 700 "${control_root}"
+          chmod 600 "${release_scan_log}"
+
+          openssl genpkey \
+            -algorithm RSA \
+            -pkeyopt rsa_keygen_bits:2048 \
+            -out "${control_root}/positive-control.pem" \
+            2>/dev/null
+          printf '%s\n' \
+            'FROM scratch' \
+            'COPY positive-control.pem /positive-control.pem' \
+            > "${control_root}/Dockerfile"
+          docker buildx build \
+            --file "${control_root}/Dockerfile" \
+            --output "type=oci,dest=${control_root}/positive-control.oci.tar" \
+            --platform linux/amd64 \
+            --progress quiet \
+            "${control_root}"
+
+          set +e
+          # Detailed positive-control findings stay inside the mode-700
+          # temporary directory; workflow output exposes only the verdict.
+          (
+            cd "${control_root}"
+            trivy image \
+              --scanners secret \
+              --exit-code 1 \
+              --format json \
+              --output positive-control.json \
+              --input positive-control.oci.tar \
+              >/dev/null 2>&1
+          )
+          positive_status=$?
+          set -e
+          if [ "${positive_status}" -ne 1 ] || \
+            ! jq -e '[.Results[]?.Secrets[]?] | length > 0' \
+              "${control_root}/positive-control.json" >/dev/null; then
+            echo "::error::Trivy secret-scanner positive control did not fail closed."
+            exit 1
+          fi
+
+          if ! (
+            cd "${release_scan_root}"
+            trivy image --scanners secret --exit-code 1 --input "${GITHUB_WORKSPACE}/relanto-release.oci.tar" \
+              > /dev/null 2>"${release_scan_log}"
+          ); then
+            echo "::error::Release archive secret scan failed or detected a recognized secret."
+            exit 1
+          fi
+          echo "Trivy found no recognized secrets in the release archive."
+          sha256sum --check relanto-release.oci.tar.sha256
+
+      - name: Publish canonical release tag and reconcile moving tags
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release-tags.outputs.release }}
+          SHA_TAG: ${{ steps.release-tags.outputs.sha }}
+        run: |
+          set -euo pipefail
+          skopeo() {
+            docker run --rm \
+              --volume "${PWD}:/work" \
+              --volume "${HOME}/.docker:/auth:ro" \
+              --workdir /work \
+              --entrypoint skopeo \
+              "${SKOPEO_IMAGE}" "$@"
+          }
+          inspect_registry_digest() {
+            local reference="$1"
+            skopeo inspect \
+              --authfile /auth/config.json \
+              --format '{{.Digest}}' \
+              "docker://${reference}"
+          }
+          reconcile_tag() {
+            local tag="$1"
+            local current_digest
+            local tag_error
+            tag_error="$(mktemp "${RUNNER_TEMP}/relanto-tag-inspect.XXXXXX")"
+            if current_digest="$(inspect_registry_digest "${IMAGE_REPOSITORY}:${tag}" 2>"${tag_error}")"; then
+              if [ "${current_digest}" = "${canonical_digest}" ]; then
+                echo "${tag} already resolves to the canonical release digest."
+                rm -f -- "${tag_error}"
+                return
+              fi
+            elif ! grep -E -i -q '(manifest unknown|name unknown)' "${tag_error}"; then
+              echo "::error::Could not read the current ${tag} digest."
+              rm -f -- "${tag_error}"
+              exit 1
+            fi
+            rm -f -- "${tag_error}"
+            skopeo copy --preserve-digests \
+              --src-authfile /auth/config.json \
+              --dest-authfile /auth/config.json \
+              "docker://${IMAGE_REPOSITORY}@${canonical_digest}" \
+              "docker://${IMAGE_REPOSITORY}:${tag}"
+          }
+
+          sha256sum --check relanto-release.oci.tar.sha256
+          source_digest="$(cat relanto-release.source.digest)"
+          canonical_digest=""
+          inspect_error="$(mktemp "${RUNNER_TEMP}/relanto-release-inspect.XXXXXX")"
+          trap 'rm -f -- "${inspect_error}"' EXIT
+
+          if canonical_digest="$(inspect_registry_digest "${IMAGE_REPOSITORY}:${RELEASE_TAG}" 2>"${inspect_error}")"; then
+            if [ "${canonical_digest}" != "${source_digest}" ]; then
+              echo "::error::Immutable release tag already points to a different digest."
+              exit 1
+            fi
+            printf '%s\n' "${canonical_digest}" > relanto-release.digest
+          else
+            if ! grep -E -i -q '(manifest unknown|name unknown)' "${inspect_error}"; then
+              echo "::error::Could not prove that the canonical release tag is absent."
+              exit 1
+            fi
+            sha256sum --check relanto-release.oci.tar.sha256
+            # The immutable tag is created from the already scanned archive;
+            # preserving the manifest digest binds publication to that evidence.
+            skopeo copy --preserve-digests \
+              --dest-authfile /auth/config.json \
+              --digestfile relanto-release.digest \
+              "oci-archive:relanto-release.oci.tar:${RELEASE_TAG}" \
+              "docker://ghcr.io/sebastian-software/relanto:${RELEASE_TAG}"
+          fi
+
+          digestfile_digest="$(cat relanto-release.digest)"
+          canonical_digest="$(inspect_registry_digest "${IMAGE_REPOSITORY}:${RELEASE_TAG}")"
+          if [ "${source_digest}" != "${digestfile_digest}" ] || \
+            [ "${source_digest}" != "${canonical_digest}" ]; then
+            echo "::error::Source, copy receipt and canonical registry digests differ."
+            exit 1
+          fi
+
+          reconcile_tag "${SHA_TAG}"
+          reconcile_tag latest
+
+          release_digest="$(inspect_registry_digest "${IMAGE_REPOSITORY}:${RELEASE_TAG}")"
+          sha_digest="$(inspect_registry_digest "${IMAGE_REPOSITORY}:${SHA_TAG}")"
+          latest_digest="$(inspect_registry_digest "${IMAGE_REPOSITORY}:latest")"
+          if [ "${release_digest}" != "${source_digest}" ] || \
+            [ "${sha_digest}" != "${source_digest}" ] || \
+            [ "${latest_digest}" != "${source_digest}" ]; then
+            echo "::error::Fresh release, SHA and latest registry digests are not identical."
+            exit 1
+          fi
+
+      - name: Verify package linkage, visibility state and workflow access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Visibility changes remain a one-time UI operation. This read-only
+          # gate accepts the documented private-before/public-after lifecycle.
+          package_metadata="$(gh api --method GET \
+            /orgs/sebastian-software/packages/container/relanto)"
+          if ! jq -e \
+            '.repository.full_name == "sebastian-software/relanto" and (.visibility == "private" or .visibility == "public")' \
+            <<<"${package_metadata}" >/dev/null; then
+            echo "::error::GHCR package linkage or visibility state is invalid."
+            exit 1
+          fi
+          package_visibility="$(jq -r '.visibility' <<<"${package_metadata}")"
+          echo "GHCR package linkage, ${package_visibility} visibility and workflow-token access are verified."

@@ -125,6 +125,29 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
+      - name: Create protected container-boundary canaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl rand -hex 32 > packages/frontend/.env.context-canary
+          openssl rand -hex 32 > packages/frontend/.relanto-runtime-canary
+          chmod 600 \
+            packages/frontend/.env.context-canary \
+            packages/frontend/.relanto-runtime-canary
+          sed 's/^/::add-mask::/' packages/frontend/.env.context-canary
+          sed 's/^/::add-mask::/' packages/frontend/.relanto-runtime-canary
+
+      - name: Prove excluded files never enter the build context
+        run: docker buildx build --platform linux/amd64 --target context-probe .
+
+      - name: Prove runtime deploy excludes the build-stage canary
+        run: |
+          docker buildx build \
+            --build-arg RELANTO_GIT_SHORT_SHA="${GITHUB_SHA}" \
+            --platform linux/amd64 \
+            --target runtime-probe \
+            .
+
       - name: Build image (no push)
         uses: docker/build-push-action@v7
         with:
@@ -137,6 +160,12 @@ jobs:
           provenance: false
           push: false
           tags: relanto:smoke-test
+
+      - name: Verify final image inventory and metadata
+        run: |
+          ./scripts/verify-container-image.sh \
+            relanto:smoke-test \
+            packages/frontend/.relanto-runtime-canary
 
       # Scan the freshly built image (OS packages + bundled node_modules) for
       # known CVEs before it is ever a release candidate. Nothing is pushed
