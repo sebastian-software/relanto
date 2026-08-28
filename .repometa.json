@@ -1,6 +1,6 @@
 {
   "standards": 6,
-  "visibility": "private",
+  "visibility": "oss",
   "since": 2026,
   "platform": "github"
 }

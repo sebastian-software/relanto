@@ -12,6 +12,18 @@ Relanto bündelt den Versand aus all deinen Anwendungen hinter einer HTTP-API: g
 
 <!-- TODO: Screenshot der Admin-UI (Dashboard: Tokens, SMTP-Konfiguration, Fehler-Panel) einfügen -->
 
+## Technische Case Study
+
+**Problem und Ansatz.** Sobald mehrere Anwendungen E-Mails versenden, wiederholen sich SMTP-Konfiguration, Zugangsschutz, Fehlerbehandlung und Betriebslogik. Relanto bündelt diese Aufgaben hinter einer selbst gehosteten HTTP-API: Anwendungen authentifizieren sich mit eigenen, begrenzbaren Zugängen und übergeben den Versand zentral an Relanto ([Architekturüberblick](docs/developer-guide/architecture.md)).
+
+**Architektur und Trade-off.** Die React-Router-Anwendung trägt Admin-Oberfläche und HTTP-Schicht; das Backend kapselt Domänenlogik, SQLite-Persistenz und einen Worker für Queue und Aufbewahrung. SQLite und der Worker im Webserver-Prozess halten die Bereitstellung kompakt, setzen aber bewusst auf genau eine laufende Instanz statt horizontalem Multi-Instanz-Betrieb mit einer gemeinsamen Datenbankdatei ([Architekturüberblick](docs/developer-guide/architecture.md), [Container-Build](Dockerfile)).
+
+**Sicherheit.** SMTP-Passwörter werden mit AES-256-GCM verschlüsselt gespeichert, Client-Secrets nur als SHA-256-Hash; sensible Fehlermeldungen werden bereinigt ([Sicherheitsmodul](packages/backend/src/security.ts)). Vor SMTP-Verbindungen prüft Relanto jede aufgelöste Zieladresse und blockiert nicht öffentlich routbare Netze, um SSRF zu begrenzen ([Implementierung](packages/backend/src/service.ts), [SSRF-Tests](packages/backend/src/service.test.mjs)). Tests sichern außerdem ab, dass strukturierte Betriebslogs weder Nachrichteninhalte noch Zugangsdaten enthalten ([Logging-Tests](packages/backend/src/structured-log.test.mjs)). Das Laufzeit-Image startet als unprivilegierter Benutzer und besitzt einen Healthcheck ([Dockerfile](Dockerfile)).
+
+**Teststrategie.** Paketbezogene Vitest-Suiten und verbindliche Coverage-Schwellen prüfen Frontend und Backend ([Teststrategie](docs/developer-guide/testing.md)). Ein Vertragstest hält die generierte OpenAPI-Spezifikation synchron mit den registrierten Routen und prüft die Abdeckung in beide Richtungen ([OpenAPI-Test](packages/backend/src/openapi/openapi.test.ts)). Die CI ergänzt diese Prüfungen um Produktionsabhängigkeits-Audit, Container-Build, Schwachstellen-Scan und Smoke-Tests ([CI-Workflow](.github/workflows/ci.yml)).
+
+**Mein Beitrag.** Ich habe Relanto konzipiert und umgesetzt – vom Domänenmodell und API-Vertrag über Authentifizierung, Queue-Verarbeitung und Admin-Oberfläche bis zu den Betriebs- und Testpfaden. Die technischen Entscheidungen und ihre Grenzen habe ich in der [Entwicklerdokumentation](docs/developer-guide/architecture.md) nachvollziehbar festgehalten.
+
 ## Was Relanto besser macht
 
 **Token & Scopes – Zugriff, der zur Anwendung passt**
@@ -177,5 +189,16 @@ Der Quellcode von Relanto ist unter der [MIT-Lizenz](LICENSE) veröffentlicht.
 ---
 
 <!-- sebastian-software-branding:start -->
-<p align="center">Copyright &copy; 2026 Sebastian Software GmbH — All rights reserved.</p>
+<p align="center">
+  <a href="https://oss.sebastian-software.com">
+    <img src="https://sebastian-brand.vercel.app/sebastian-software/logo-software.svg" alt="Sebastian Software" width="240" />
+  </a>
+</p>
+
+<p align="center">
+  <strong>Built by Sebastian Software</strong> — consulting for TypeScript, React &amp; Rust.<br />
+  <a href="https://sebastian-software.de">Work with us</a> · <a href="https://oss.sebastian-software.com">More open source</a>
+</p>
+
+<p align="center">Copyright &copy; 2026 Sebastian Software GmbH</p>
 <!-- sebastian-software-branding:end -->
