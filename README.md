@@ -44,13 +44,18 @@ Ein Container, eine SQLite-Datei, dein Server. Backup ist ein Skript, kein Suppo
 
 ## So funktioniert's
 
-1. **Container starten** – Image ziehen, Pflicht-Env-Vars setzen, Volume für die SQLite-Datenbank bereitstellen.
+1. **Container starten** – Quellcode klonen, Image lokal bauen, Pflicht-Env-Vars setzen und ein Volume für die SQLite-Datenbank bereitstellen.
 2. **App, SMTP-Config und Token anlegen** – im Admin-Panel Anwendungen registrieren, SMTP-Zugänge hinterlegen und API-Tokens mit den nötigen Scopes erstellen.
 3. **E-Mails versenden** – Token über `POST /api/v1/token` holen, dann `POST /api/v1/send` aufrufen.
 
 ## Schnellstart
 
 ```bash
+git clone https://github.com/sebastian-software/relanto.git
+cd relanto
+podman build \
+  --build-arg RELANTO_GIT_SHORT_SHA=$(git rev-parse --short HEAD) \
+  -t relanto:local .
 podman run -d -p 3000:3000 \
   -e APP_SESSION_SECRET=$(openssl rand -hex 32) \
   -e MAILER_SECRET_KEY=$(openssl rand -hex 32) \
@@ -59,8 +64,14 @@ podman run -d -p 3000:3000 \
   -e POCKET_ID_CLIENT_ID=mailer \
   -e POCKET_ID_REDIRECT_URI=https://mailer.example.com/auth/callback \
   -v relanto-data:/var/lib/relanto:U \
-  ghcr.io/sebastian-software/relanto:latest
+  relanto:local
 ```
+
+Für Docker `podman` durch `docker` ersetzen und die Volume-Berechtigungen wie unter [Betrieb und Datensicherung](#betrieb-und-datensicherung) beschrieben setzen. Der Standard-Build aus dem öffentlichen Quellcode benötigt keine npm-, GitHub- oder Registry-Zugangsdaten.
+
+Das GHCR-Paket ist derzeit privat; ein anonymer Pull wird nicht zugesichert. Das künftig vorgebaute Image unterstützt ausschließlich `linux/amd64`. Der Build aus dem Quellcode bleibt der Fallback, ist aber keine Zusage für ARM-Unterstützung. Technische Details stehen in der [Frontend-Dokumentation](packages/frontend/README.md#credential-freier-lokaler-container-start), der Freigabeprozess im [GHCR-Runbook](docs/ghcr-image-visibility.md).
+
+Erst PR 2 wird den anonymen GHCR-Pull dokumentieren: nach dem Merge des gehärteten Workflows, einem realen Release mit bestandenem Archiv-, Digest- und Scan-Gate („keine erkannten Secrets unter den aktiven Trivy-Regeln“), korrigierter Paketverknüpfung und Workflow-Berechtigung, dem irreversiblen manuellen Wechsel auf **Public** in den GitHub Package Settings sowie einem erfolgreichen anonymen Pull-Nachweis.
 
 Für Produktivbetrieb mit systemd-Integration: [deploy/quadlet/relanto.container.example](deploy/quadlet/relanto.container.example)
 
@@ -103,8 +114,7 @@ Wichtig:
 
 ## Schnellstart für Betreiber
 
-1. Container-Image verwenden:
-   `ghcr.io/sebastian-software/relanto`
+1. Repository klonen und das lokale Image `relanto:local` wie im [Schnellstart](#schnellstart) bauen
 2. Persistentes Volume für die Datenbank bereitstellen, zum Beispiel unter `/var/lib/relanto`
 3. Pflichtvariablen setzen:
    - `APP_SESSION_SECRET`
