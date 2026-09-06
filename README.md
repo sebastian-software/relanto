@@ -189,6 +189,7 @@ Der Quellcode von Relanto ist unter der [MIT-Lizenz](LICENSE) veröffentlicht.
 ---
 
 <!-- sebastian-software-branding:start -->
+
 <p align="center">
   <a href="https://oss.sebastian-software.com">
     <img src="https://sebastian-brand.vercel.app/sebastian-software/logo-software.svg" alt="Sebastian Software" width="240" />
@@ -201,4 +202,5 @@ Der Quellcode von Relanto ist unter der [MIT-Lizenz](LICENSE) veröffentlicht.
 </p>
 
 <p align="center">Copyright &copy; 2026 Sebastian Software GmbH</p>
+
 <!-- sebastian-software-branding:end -->
