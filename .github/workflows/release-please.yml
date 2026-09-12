@@ -135,6 +135,24 @@ jobs:
             > relanto-release.source.digest
           grep -E -q '^sha256:[0-9a-f]{64}$' relanto-release.source.digest
 
+          # Publish only validated, non-secret release evidence for the operator.
+          archive_sha256="$(cut -d ' ' -f 1 relanto-release.oci.tar.sha256)"
+          if ! [[ "${archive_sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Release archive checksum is not a SHA-256 value."
+            exit 1
+          fi
+          source_digest="$(cat relanto-release.source.digest)"
+          printf 'Release archive SHA-256: %s\n' "${archive_sha256}"
+          printf 'Selected OCI manifest digest: %s\n' "${source_digest}"
+          {
+            printf '### Release archive evidence\n\n'
+            printf '| Evidence | Value |\n'
+            printf '| --- | --- |\n'
+            printf '| Release tag | `%s` |\n' "${RELEASE_TAG}"
+            printf '| `relanto-release.oci.tar` SHA-256 | `%s` |\n' "${archive_sha256}"
+            printf '| Selected OCI manifest digest | `%s` |\n\n' "${source_digest}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Import the exact archive without rebuilding
         shell: bash
         env:
@@ -245,6 +263,15 @@ jobs:
           echo "Trivy found no recognized secrets in the release archive."
           sha256sum --check relanto-release.oci.tar.sha256
 
+          # Only the verdict is evidence; findings and control material stay private.
+          trivy_verdict='Trivy secret-scanner positive control failed closed as expected; release archive scan found no recognized secrets under the active Trivy rules.'
+          printf '%s\n' "${trivy_verdict}"
+          {
+            printf '### Trivy secret scan evidence\n\n'
+            printf '%s\n\n' "${trivy_verdict}"
+            printf 'Release archive checksum re-verified after the scan.\n\n'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Publish canonical release tag and reconcile moving tags
         shell: bash
         env:
@@ -338,6 +365,24 @@ jobs:
             echo "::error::Fresh release, SHA and latest registry digests are not identical."
             exit 1
           fi
+
+          # All digests are proven equal above; record them as release evidence.
+          printf 'Selected OCI manifest digest: %s\n' "${source_digest}"
+          printf 'Copy receipt digest (relanto-release.digest): %s\n' "${digestfile_digest}"
+          printf 'Registry digest %s:%s: %s\n' "${IMAGE_REPOSITORY}" "${RELEASE_TAG}" "${release_digest}"
+          printf 'Registry digest %s:%s: %s\n' "${IMAGE_REPOSITORY}" "${SHA_TAG}" "${sha_digest}"
+          printf 'Registry digest %s:latest: %s\n' "${IMAGE_REPOSITORY}" "${latest_digest}"
+          {
+            printf '### Publication evidence\n\n'
+            printf '| Evidence | Reference | Digest |\n'
+            printf '| --- | --- | --- |\n'
+            printf '| Selected OCI manifest | `relanto-release.oci.tar:%s` | `%s` |\n' "${RELEASE_TAG}" "${source_digest}"
+            printf '| Copy receipt | `relanto-release.digest` | `%s` |\n' "${digestfile_digest}"
+            printf '| Registry release tag | `%s:%s` | `%s` |\n' "${IMAGE_REPOSITORY}" "${RELEASE_TAG}" "${release_digest}"
+            printf '| Registry SHA tag | `%s:%s` | `%s` |\n' "${IMAGE_REPOSITORY}" "${SHA_TAG}" "${sha_digest}"
+            printf '| Registry latest tag | `%s:latest` | `%s` |\n\n' "${IMAGE_REPOSITORY}" "${latest_digest}"
+            printf 'Source, copy receipt and fresh registry digests are identical.\n\n'
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Verify package linkage, visibility state and workflow access
         shell: bash

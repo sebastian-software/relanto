@@ -22,6 +22,8 @@ Der erste reale Frontend-Release danach muss in einem einzigen Release-Build gen
 5. den von `skopeo copy --digestfile` geschriebenen Digest und dessen Gleichheit mit dem ausgewählten OCI-Manifest-Digest;
 6. frische Registry-Abfragen, nach denen Release-Tag, `sha-<short-sha>` und `latest` auf exakt denselben Digest zeigen.
 
+Der Release-Workflow gibt diese nicht geheimen Werte erst nach bestandener Prüfung im Job-Log aus und schreibt sie in die Step-Summary des Laufs; dort liest der Operator die Belege vor dem irreversiblen Wechsel ab.
+
 Fehlt ein Nachweis oder weichen Archiv-Checksum beziehungsweise Digests ab, endet der Übergang fail-closed. Die Sichtbarkeit bleibt privat.
 
 ## 2. Paketverknüpfung und Workflow-Zugriff korrigieren
