@@ -114,44 +114,31 @@ jobs:
           push: false
           tags: ghcr.io/sebastian-software/relanto:${{ steps.release-tags.outputs.release }}
 
-      - name: Record archive bytes and selected OCI manifest digest
-        shell: bash
+      - name: Prepare harmless Trivy bootstrap target
+        run: mkdir .trivy-bootstrap-empty
+
+      - name: Install pinned Trivy CLI
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          cache: true
+          exit-code: 1
+          hide-progress: true
+          scan-ref: .trivy-bootstrap-empty
+          scan-type: fs
+          scanners: secret
+          version: v0.70.0
+
+      # The same script runs in the pull-request CI container job, so the
+      # pre-merge gate and this release gate cannot drift. It records
+      # relanto-release.oci.tar.sha256 and relanto-release.source.digest for
+      # the publish step, proves Trivy with a positive control, scans the
+      # archive, proves digest preservation into a local OCI layout without
+      # publishing and prints only validated, non-secret evidence. It uses the
+      # job's digest-pinned SKOPEO_IMAGE without a docker socket mount.
+      - name: Record archive evidence, prove Trivy and prove digest preservation
         env:
           RELEASE_TAG: ${{ steps.release-tags.outputs.release }}
-        run: |
-          set -euo pipefail
-          skopeo() {
-            docker run --rm \
-              --volume "${PWD}:/work" \
-              --workdir /work \
-              --entrypoint skopeo \
-              "${SKOPEO_IMAGE}" "$@"
-          }
-          skopeo --version
-          sha256sum relanto-release.oci.tar > relanto-release.oci.tar.sha256
-          skopeo inspect \
-            --format '{{.Digest}}' \
-            "oci-archive:relanto-release.oci.tar:${RELEASE_TAG}" \
-            > relanto-release.source.digest
-          grep -E -q '^sha256:[0-9a-f]{64}$' relanto-release.source.digest
-
-          # Publish only validated, non-secret release evidence for the operator.
-          archive_sha256="$(cut -d ' ' -f 1 relanto-release.oci.tar.sha256)"
-          if ! [[ "${archive_sha256}" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "::error::Release archive checksum is not a SHA-256 value."
-            exit 1
-          fi
-          source_digest="$(cat relanto-release.source.digest)"
-          printf 'Release archive SHA-256: %s\n' "${archive_sha256}"
-          printf 'Selected OCI manifest digest: %s\n' "${source_digest}"
-          {
-            printf '### Release archive evidence\n\n'
-            printf '| Evidence | Value |\n'
-            printf '| --- | --- |\n'
-            printf '| Release tag | `%s` |\n' "${RELEASE_TAG}"
-            printf '| `relanto-release.oci.tar` SHA-256 | `%s` |\n' "${archive_sha256}"
-            printf '| Selected OCI manifest digest | `%s` |\n\n' "${source_digest}"
-          } >> "${GITHUB_STEP_SUMMARY}"
+        run: ./scripts/verify-release-archive.sh relanto-release.oci.tar "${RELEASE_TAG}"
 
       - name: Import the exact archive without rebuilding
         shell: bash
@@ -181,106 +168,6 @@ jobs:
           SMOKE_TEST_OPERATOR_ASSETS_FIXTURE=true \
             ./scripts/smoke-test-container.sh relanto:release-candidate
           sha256sum --check relanto-release.oci.tar.sha256
-
-      - name: Prepare harmless Trivy bootstrap target
-        run: mkdir .trivy-bootstrap-empty
-
-      - name: Install pinned Trivy CLI
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          cache: true
-          exit-code: 1
-          hide-progress: true
-          scan-ref: .trivy-bootstrap-empty
-          scan-type: fs
-          scanners: secret
-          version: v0.70.0
-
-      - name: Prove Trivy with a protected control and scan the release archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          trivy --version
-
-          control_root="$(mktemp -d "${RUNNER_TEMP}/relanto-trivy-control.XXXXXX")"
-          release_scan_root="$(mktemp -d "${RUNNER_TEMP}/relanto-trivy-release-root.XXXXXX")"
-          release_scan_log="$(mktemp "${RUNNER_TEMP}/relanto-trivy-release.XXXXXX")"
-          cleanup() {
-            rm -rf -- "${control_root}"
-            rm -rf -- "${release_scan_root}"
-            rm -f -- "${release_scan_log}"
-          }
-          trap cleanup EXIT
-          chmod 700 "${control_root}"
-          chmod 600 "${release_scan_log}"
-
-          openssl genpkey \
-            -algorithm RSA \
-            -pkeyopt rsa_keygen_bits:2048 \
-            -out "${control_root}/positive-control.pem" \
-            2>/dev/null
-          printf '%s\n' \
-            'FROM scratch' \
-            'COPY positive-control.pem /positive-control.pem' \
-            > "${control_root}/Dockerfile"
-          docker buildx build \
-            --file "${control_root}/Dockerfile" \
-            --output "type=oci,dest=${control_root}/positive-control.oci.tar" \
-            --platform linux/amd64 \
-            --progress quiet \
-            "${control_root}"
-
-          # Trivy's --input accepts a docker-save tarball or an OCI image
-          # layout directory, not an OCI archive tarball. Each unchanged
-          # archive is therefore unpacked into a temporary layout directory.
-          mkdir -m 700 "${control_root}/positive-control-layout"
-          tar -xf "${control_root}/positive-control.oci.tar" \
-            -C "${control_root}/positive-control-layout"
-
-          set +e
-          # Detailed positive-control findings stay inside the mode-700
-          # temporary directory; workflow output exposes only the verdict.
-          (
-            cd "${control_root}"
-            trivy image \
-              --scanners secret \
-              --exit-code 1 \
-              --format json \
-              --output positive-control.json \
-              --input positive-control-layout \
-              >/dev/null 2>&1
-          )
-          positive_status=$?
-          set -e
-          if [ "${positive_status}" -ne 1 ] || \
-            ! jq -e '[.Results[]?.Secrets[]?] | length > 0' \
-              "${control_root}/positive-control.json" >/dev/null; then
-            echo "::error::Trivy secret-scanner positive control did not fail closed."
-            exit 1
-          fi
-
-          mkdir -m 700 "${release_scan_root}/relanto-release-layout"
-          tar -xf "${GITHUB_WORKSPACE}/relanto-release.oci.tar" \
-            -C "${release_scan_root}/relanto-release-layout"
-          if ! (
-            cd "${release_scan_root}"
-            trivy image --scanners secret --exit-code 1 --input "${release_scan_root}/relanto-release-layout" \
-              > /dev/null 2>"${release_scan_log}"
-          ); then
-            echo "::error::Release archive secret scan failed or detected a recognized secret."
-            exit 1
-          fi
-          echo "Trivy found no recognized secrets in the release archive."
-          sha256sum --check relanto-release.oci.tar.sha256
-
-          # Only the verdict is evidence; findings and control material stay private.
-          trivy_verdict='Trivy secret-scanner positive control failed closed as expected; release archive scan found no recognized secrets under the active Trivy rules.'
-          printf '%s\n' "${trivy_verdict}"
-          {
-            printf '### Trivy secret scan evidence\n\n'
-            printf '%s\n\n' "${trivy_verdict}"
-            printf 'Release archive checksum re-verified after the scan.\n\n'
-          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Publish canonical release tag and reconcile moving tags
         shell: bash

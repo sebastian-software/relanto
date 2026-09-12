@@ -46,6 +46,7 @@ DOCKERFILE=Dockerfile
 CI_WORKFLOW=.github/workflows/ci.yml
 RELEASE_WORKFLOW=.github/workflows/release-please.yml
 IMAGE_VERIFIER=scripts/verify-container-image.sh
+RELEASE_ARCHIVE_GATE=scripts/verify-release-archive.sh
 
 # The canary lives at a path that a recursive local-secret rule must exclude.
 require_pattern "${DOCKERIGNORE}" '^\*\*/\.env$' \
@@ -161,31 +162,106 @@ done
 
 archive_checksum_count="$(grep -E -c 'sha256sum[[:space:]].*relanto-release\.oci\.tar' "${RELEASE_WORKFLOW}" || true)"
 if [ "${archive_checksum_count}" -lt 3 ]; then
-  fail "release workflow must recheck OCI archive bytes after smoke, after scan and before copy"
+  fail "release workflow must recheck OCI archive bytes after smoke and before copy (found ${archive_checksum_count} checksum commands)"
+fi
+
+# Pre-merge CI and the release workflow share one non-publishing archive gate:
+# checksum and digest record, Trivy positive control, secret scan and a local
+# digest-preservation proof. Both workflows must call it so they cannot drift.
+require_file "${RELEASE_ARCHIVE_GATE}" \
+  'a shared non-publishing release archive gate must exist'
+for workflow in "${CI_WORKFLOW}" "${RELEASE_WORKFLOW}"; do
+  require_pattern "${workflow}" 'scripts/verify-release-archive\.sh[[:space:]]+relanto-release\.oci\.tar[[:space:]]' \
+    'the workflow must run the shared release archive gate on relanto-release.oci.tar'
+  require_pattern "${workflow}" 'aquasecurity/trivy-action@[0-9a-f]{40}' \
+    'the secret scanner used by the shared archive gate must be pinned to an immutable commit'
+  require_pattern "${workflow}" 'SKOPEO_IMAGE:[[:space:]]*quay\.io/skopeo/stable@sha256:[0-9a-f]{64}' \
+    'the shared archive gate must run a digest-pinned Skopeo image'
+  forbid_pattern "${workflow}" '--input[=[:space:]]+[^[:space:]]*\.oci\.tar' \
+    'Trivy cannot read an OCI archive tarball; --input must point at an OCI layout directory'
+done
+ci_skopeo_image="$(grep -E -o 'quay\.io/skopeo/stable@sha256:[0-9a-f]{64}' "${CI_WORKFLOW}" | sort -u || true)"
+release_skopeo_image="$(grep -E -o 'quay\.io/skopeo/stable@sha256:[0-9a-f]{64}' "${RELEASE_WORKFLOW}" | sort -u || true)"
+if [ -z "${ci_skopeo_image}" ] || [ "${ci_skopeo_image}" != "${release_skopeo_image}" ]; then
+  fail 'CI and release must run the shared archive gate with the same single pinned Skopeo image'
+fi
+
+require_pattern "${CI_WORKFLOW}" 'type=oci,dest=relanto-release\.oci\.tar' \
+  'the pre-merge archive gate must build a linux/amd64 OCI archive'
+forbid_pattern "${CI_WORKFLOW}" '(docker/login-action|push:[[:space:]]*true|docker\.sock|docker-daemon:)' \
+  'the pre-merge archive gate must not log in, push or reach a container daemon socket'
+
+# Release order: build, shared gate, import and smoke, then publication.
+first_line() {
+  grep -E -n -m 1 -- "$2" "$1" | cut -d : -f 1 || true
+}
+gate_line="$(first_line "${RELEASE_WORKFLOW}" 'scripts/verify-release-archive\.sh')"
+build_line="$(first_line "${RELEASE_WORKFLOW}" 'uses:[[:space:]]*docker/build-push-action@')"
+import_line="$(first_line "${RELEASE_WORKFLOW}" 'docker-daemon:')"
+publish_line="$(first_line "${RELEASE_WORKFLOW}" '--digestfile[=[:space:]]+[^[:space:]]*relanto-release\.digest')"
+if [ -z "${gate_line}" ] || [ -z "${build_line}" ] || [ -z "${import_line}" ] || [ -z "${publish_line}" ] || \
+  [ "${build_line}" -ge "${gate_line}" ] || [ "${gate_line}" -ge "${import_line}" ] || \
+  [ "${import_line}" -ge "${publish_line}" ]; then
+  fail 'release must run build, shared archive gate, import and smoke, and publication in this order'
+fi
+
+if [ -f "${RELEASE_ARCHIVE_GATE}" ]; then
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'sha256sum[[:space:]]+"\$\{ARCHIVE_NAME\}"[[:space:]]+>[[:space:]]+"\$\{CHECKSUM_NAME\}"' \
+    'the archive gate must record the archive bytes before any scan'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'CHECKSUM_NAME="\$\{ARCHIVE_NAME\}\.sha256"' \
+    'the archive gate must write relanto-release.oci.tar.sha256 for the publish step'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'SOURCE_DIGEST_NAME="\$\{ARCHIVE_STEM\}\.source\.digest"' \
+    'the archive gate must write relanto-release.source.digest for the publish step'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" '\^sha256:\[0-9a-f\]\{64\}\$' \
+    'the archive gate must validate sha256 manifest digests'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'sha256sum[[:space:]]+--check' \
+    'the archive gate must re-verify the archive bytes'
+  gate_checksum_count="$(grep -E -c "^verify_archive_checksum '" "${RELEASE_ARCHIVE_GATE}" || true)"
+  if [ "${gate_checksum_count}" -lt 2 ]; then
+    fail "the archive gate must recheck OCI archive bytes after the scan and after the digest proof (${RELEASE_ARCHIVE_GATE})"
+  fi
+  require_pattern "${RELEASE_ARCHIVE_GATE}" '--scanners[=[:space:]]+secret' \
+    'the archive gate must run the explicit Trivy secret scanner'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" '--exit-code[=[:space:]]+1' \
+    'recognized secrets must fail the archive gate'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'tar[[:space:]]+-xf[[:space:]]+"\$\{ARCHIVE_DIR\}/\$\{ARCHIVE_NAME\}"' \
+    'the secret scanner must unpack the unchanged release OCI archive into a layout directory'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'trivy[[:space:]]+image[[:space:]][^[:cntrl:]]*--input[=[:space:]]+[^[:space:]]*relanto-release-layout' \
+    'the release secret scan must inspect the unpacked OCI layout directory of the release archive'
+  forbid_pattern "${RELEASE_ARCHIVE_GATE}" '--input[=[:space:]]+[^[:space:]]*\.oci\.tar' \
+    'Trivy cannot read an OCI archive tarball; --input must point at an OCI layout directory'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'positive-control\.oci\.tar' \
+    'the secret scanner must be proven by a disposable positive-control archive'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'positive_status' \
+    'the positive-control result must be checked explicitly'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" '--output[[:space:]]+positive-control\.json' \
+    'the Trivy positive control must keep its detailed JSON finding in protected temporary storage'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" '\.Results\[\]\?\.Secrets\[\]\?' \
+    'the Trivy positive control must prove a real secret finding rather than only an exit code'
+  forbid_pattern "${RELEASE_ARCHIVE_GATE}" '(trivyignore|--ignorefile|--config|--debug|--trace|--format[=[:space:]]+sarif)' \
+    'archive secret scanning must not use ignores, custom config, debug output or SARIF reports'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'skopeo[[:space:]]+copy[[:space:]]+--preserve-digests' \
+    'the non-publishing proof must copy with --preserve-digests'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" '--digestfile[=[:space:]]+' \
+    'the non-publishing proof must record the copy receipt digest'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" '"oci-archive:\$\{ARCHIVE_NAME\}:\$\{RELEASE_TAG\}"' \
+    'the non-publishing proof must read the unchanged OCI archive'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" '"oci:[^[:space:]]*proof-layout:\$\{RELEASE_TAG\}"' \
+    'the non-publishing proof must copy into a local OCI layout'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'source_digest\}"[[:space:]]+!=[[:space:]]+"\$\{digestfile_digest' \
+    'the non-publishing proof must compare source and copy receipt digests'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'source_digest\}"[[:space:]]+!=[[:space:]]+"\$\{layout_digest' \
+    'the non-publishing proof must compare source and copied layout digests'
+  forbid_pattern "${RELEASE_ARCHIVE_GATE}" '(docker\.sock|docker-daemon:|docker://|docker[[:space:]]+(login|push)|skopeo[[:space:]]+login)' \
+    'the shared archive gate must stay daemonless and non-publishing'
+  require_pattern "${RELEASE_ARCHIVE_GATE}" 'GITHUB_STEP_SUMMARY' \
+    'the archive gate must publish validated, non-secret evidence to the step summary'
 fi
 
 require_pattern "${RELEASE_WORKFLOW}" '(aquasecurity/trivy-action@[0-9a-f]{40}|aquasec/trivy[^[:space:]]*@sha256:[0-9a-f]{64})' \
   'the release secret scanner must be pinned to an immutable commit or image digest'
-require_pattern "${RELEASE_WORKFLOW}" '--scanners[=[:space:]]+secret' \
-  'release workflow must run the explicit Trivy secret scanner'
-require_pattern "${RELEASE_WORKFLOW}" '--exit-code[=[:space:]]+1' \
-  'recognized secrets must fail the release gate'
-require_pattern "${RELEASE_WORKFLOW}" 'tar[[:space:]]+-x[^[:cntrl:]]*relanto-release\.oci\.tar' \
-  'the secret scanner must unpack the unchanged release OCI archive into a layout directory'
-require_pattern "${RELEASE_WORKFLOW}" 'trivy[[:space:]]+image[[:space:]][^[:cntrl:]]*--input[=[:space:]]+[^[:space:]]*relanto-release-layout' \
-  'the release secret scan must inspect the unpacked OCI layout directory of the release archive'
-forbid_pattern "${RELEASE_WORKFLOW}" '--input[=[:space:]]+[^[:space:]]*\.oci\.tar' \
-  'Trivy cannot read an OCI archive tarball; --input must point at an OCI layout directory'
-require_pattern "${RELEASE_WORKFLOW}" 'positive-control\.oci\.tar' \
-  'the secret scanner must be proven by a disposable positive-control archive'
-require_pattern "${RELEASE_WORKFLOW}" 'positive_status' \
-  'the positive-control result must be checked explicitly'
 forbid_pattern "${RELEASE_WORKFLOW}" '(trivyignore|--ignorefile|--config|--debug|--trace|format:[[:space:]]*sarif|--format[=[:space:]]+sarif)' \
   'release secret scanning must not use ignores, custom config, debug output or SARIF reports'
-require_pattern "${RELEASE_WORKFLOW}" '--output[[:space:]]+positive-control\.json' \
-  'the Trivy positive control must keep its detailed JSON finding in protected temporary storage'
-require_pattern "${RELEASE_WORKFLOW}" '\.Results\[\]\?\.Secrets\[\]\?' \
-  'the Trivy positive control must prove a real secret finding rather than only an exit code'
 
 require_pattern "${RELEASE_WORKFLOW}" '(skopeo[^[:space:]]*@sha256:[0-9a-f]{64}|SKOPEO_VERSION:|skopeo[^[:cntrl:]]*(sha256sum|checksum))' \
   'skopeo must be pinned by immutable digest or exact version plus integrity check'

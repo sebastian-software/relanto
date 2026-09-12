@@ -195,3 +195,45 @@ jobs:
         env:
           SMOKE_TEST_OPERATOR_ASSETS_FIXTURE: "true"
         run: ./scripts/smoke-test-container.sh relanto:smoke-test
+
+      # Non-publishing pre-merge release archive gate. It builds one
+      # linux/amd64 OCI archive exactly like the release build (BuildKit reuses
+      # the cache of the image build above) and runs the same
+      # scripts/verify-release-archive.sh as release-please.yml: Trivy positive
+      # control, secret scan of the unpacked archive and a skopeo
+      # --preserve-digests/--digestfile proof into a local OCI layout. No
+      # registry login, no push, no docker socket mount.
+      - name: Build the linux/amd64 release OCI archive (no push)
+        uses: docker/build-push-action@v7
+        with:
+          build-args: |
+            RELANTO_GIT_SHORT_SHA=${{ github.sha }}
+          context: .
+          file: ./Dockerfile
+          outputs: type=oci,dest=relanto-release.oci.tar
+          platforms: linux/amd64
+          provenance: false
+          push: false
+          tags: relanto:ci-${{ github.run_id }}
+
+      - name: Prepare harmless Trivy bootstrap target
+        run: mkdir .trivy-bootstrap-empty
+
+      - name: Install pinned Trivy CLI
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          cache: true
+          exit-code: 1
+          hide-progress: true
+          scan-ref: .trivy-bootstrap-empty
+          scan-type: fs
+          scanners: secret
+          version: v0.70.0
+
+      # Same digest-pinned Skopeo image as release-please.yml, so both gates
+      # run Skopeo 1.22.2 instead of the runner image's older package.
+      - name: Prove release archive secret scan and digest preservation
+        env:
+          RELEASE_TAG: ci-${{ github.run_id }}
+          SKOPEO_IMAGE: quay.io/skopeo/stable@sha256:4a16d57b37617a04b3d643079a477a2848efe892dffcdf0ce56df4262b65f810
+        run: ./scripts/verify-release-archive.sh relanto-release.oci.tar "${RELEASE_TAG}"

@@ -24,6 +24,8 @@ Der erste reale Frontend-Release danach muss in einem einzigen Release-Build gen
 
 Der Release-Workflow gibt diese nicht geheimen Werte erst nach bestandener Prüfung im Job-Log aus und schreibt sie in die Step-Summary des Laufs; dort liest der Operator die Belege vor dem irreversiblen Wechsel ab.
 
+Checksum- und Digest-Aufzeichnung, Trivy-Positivkontrolle, Secret-Scan und ein nicht veröffentlichender Digest-Erhaltungsnachweis liegen gemeinsam in `scripts/verify-release-archive.sh`. Für diesen Nachweis kopiert `skopeo copy --preserve-digests --digestfile` das Archiv in ein temporäres lokales OCI-Layout. Ausgewählter Manifest-Digest, Digestfile und Layout-Digest müssen identisch sein. Der Release-Workflow ruft das Skript vor Import, Smoke-Test und Veröffentlichung auf. Der `container`-Job in `.github/workflows/ci.yml` führt dasselbe Skript bereits vor dem Merge aus: mit einem einmal gebauten `linux/amd64`-OCI-Archiv, ohne Registry-Login, ohne Push und ohne Docker-Socket. Ein grüner Pull-Request-Lauf belegt so Positivkontrolle, Secret-Scan und Digest-Erhaltung vor dem Merge; die Nachweise des realen Releases ersetzt er nicht.
+
 Fehlt ein Nachweis oder weichen Archiv-Checksum beziehungsweise Digests ab, endet der Übergang fail-closed. Die Sichtbarkeit bleibt privat.
 
 ## 2. Paketverknüpfung und Workflow-Zugriff korrigieren
