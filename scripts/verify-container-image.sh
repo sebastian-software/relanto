@@ -107,6 +107,47 @@ report_inventory_mismatch() {
     "$(inventory_count "${actual}")" >&2
 }
 
+indent_list() {
+  if [ -z "$1" ]; then
+    printf '    (none)\n'
+  else
+    local line
+    while IFS= read -r line; do
+      printf '    %s\n' "${line}"
+    done <<<"$1"
+  fi
+}
+
+# Prints only paths relative to /app, never file contents. The list is capped so
+# a broad violation stays readable in CI logs.
+report_path_hits() {
+  local label="$1"
+  local hits="$2"
+  local limit=20
+  local count
+
+  count="$(inventory_count "${hits}")"
+  printf '%s (%s hits):\n' "${label}" "${count}" >&2
+  head -n "${limit}" <<<"${hits}" | sed 's/^/  \/app\//' >&2
+  if [ "${count}" -gt "${limit}" ]; then
+    printf '  ... and %s more\n' "$((count - limit))" >&2
+  fi
+}
+
+report_identity_mismatch() {
+  local label="$1"
+  local expected="$2"
+  local actual="$3"
+
+  {
+    printf '%s.\n' "${label}"
+    printf '  expected:\n'
+    indent_list "${expected}"
+    printf '  actual:\n'
+    indent_list "${actual}"
+  } >&2
+}
+
 # The canary stays in a pattern file so its value never appears in command-line
 # arguments or successful verifier output.
 if [ ! -s "${CANARY_PATTERN_FILE}" ]; then
@@ -193,20 +234,78 @@ if [ "${runtime_root_inventory}" != "${expected_runtime_root_inventory}" ]; then
   exit 1
 fi
 
-forbidden_path="$(find "${app_root}" \
-  \( -name '.env' -o -name '.env.*' -o -name '.npmrc' -o -name '.yarnrc*' \
-     -o -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name '*.pfx' \
-     -o -name '*.test.*' -o -name '*.spec.*' -o -name '__tests__' \
-     -o -name '.relanto-runtime-canary' \) -print -quit)"
-if [ -n "${forbidden_path}" ]; then
-  echo "Final image contains a forbidden runtime path." >&2
+# Secret material is forbidden everywhere below /app, including third-party
+# dependencies in node_modules.
+secret_path_hits="$(
+  cd "${app_root}"
+  find -P . \
+    \( -name '.env' -o -name '.env.*' -o -name '.npmrc' -o -name '.yarnrc*' \
+       -o -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name '*.pfx' \
+       -o -name '.relanto-runtime-canary' \) -print |
+    sed 's|^\./||' | LC_ALL=C sort
+)"
+if [ -n "${secret_path_hits}" ]; then
+  report_path_hits "Final image contains forbidden secret-bearing runtime paths" "${secret_path_hits}"
   exit 1
 fi
 
-first_party_inventory="$(find "${app_root}/node_modules" -path '*/@relanto/*/package.json' -print | sort)"
-expected_first_party="${app_root}/node_modules/@relanto/backend/package.json"
-if [ "${first_party_inventory}" != "${expected_first_party}" ]; then
-  echo "Final image contains an unexpected first-party package inventory." >&2
+# Test sources are forbidden in first-party content only. Third-party packages
+# may ship their own tests; the backend package is covered by the exact
+# expected_backend_inventory check below.
+test_path_hits="$(
+  cd "${app_root}"
+  find -P . -path ./node_modules -prune -o \
+    \( -name '*.test.*' -o -name '*.spec.*' -o -name '__tests__' \) -print |
+    sed 's|^\./||' | LC_ALL=C sort
+)"
+if [ -n "${test_path_hits}" ]; then
+  report_path_hits "Final image contains forbidden first-party test paths" "${test_path_hits}"
+  exit 1
+fi
+
+# First-party packages are identified by manifest name instead of location:
+# pnpm deploy --legacy keeps the physical package in the virtual store
+# (node_modules/.pnpm/...) and links it from node_modules/@relanto, while the
+# non-legacy layout copies it there directly. -P never follows those links.
+first_party_manifest_entries="${TEMP_ROOT}/first-party-manifests.entries"
+find -P "${app_root}/node_modules" -type f -name package.json -path '*/@relanto/*' -print0 \
+  >"${first_party_manifest_entries}"
+first_party_names=""
+first_party_manifests=""
+while IFS= read -r -d '' manifest; do
+  relative_manifest="${manifest#"${app_root}"/}"
+  if [[ ! "${relative_manifest}" =~ (^|/)@relanto/[^/]+/package\.json$ ]]; then
+    continue
+  fi
+  if ! manifest_name="$(jq -r '.name // empty' "${manifest}" 2>/dev/null)" || [ -z "${manifest_name}" ]; then
+    echo "Final image contains an unreadable first-party package manifest: /app/${relative_manifest}" >&2
+    exit 1
+  fi
+  first_party_names+="${manifest_name}"$'\n'
+  first_party_manifests+="${relative_manifest}"$'\n'
+done <"${first_party_manifest_entries}"
+first_party_names="$(printf '%s' "${first_party_names}" | LC_ALL=C sort -u)"
+first_party_manifests="$(printf '%s' "${first_party_manifests}" | LC_ALL=C sort)"
+expected_first_party_names="@relanto/backend"
+if [ "${first_party_names}" != "${expected_first_party_names}" ]; then
+  report_identity_mismatch \
+    "Final image contains an unexpected first-party package identity set" \
+    "${expected_first_party_names}" \
+    "${first_party_names}"
+  printf '  manifests:\n%s\n' "$(indent_list "${first_party_manifests}")" >&2
+  exit 1
+fi
+
+first_party_scope_entries="$(
+  cd "${app_root}/node_modules/@relanto"
+  find -P . -mindepth 1 -maxdepth 1 -print | sed 's|^\./||' | LC_ALL=C sort
+)"
+expected_first_party_scope_entries="backend"
+if [ "${first_party_scope_entries}" != "${expected_first_party_scope_entries}" ]; then
+  report_identity_mismatch \
+    "Final image node_modules/@relanto differs from the explicit allowlist" \
+    "${expected_first_party_scope_entries}" \
+    "${first_party_scope_entries}"
   exit 1
 fi
 
