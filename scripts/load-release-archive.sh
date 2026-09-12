@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 #
 # Load one verified OCI release archive into the local image store and prove
-# that the loaded image is exactly the archived image. Pre-merge CI runs the
-# image verifier and both smoke tests against the tag loaded here, so they test
-# the same archive that scripts/verify-release-archive.sh scanned instead of a
-# second build. It never logs in, never publishes, never mounts a container
-# daemon socket and never uses the docker-daemon transport: the archive is read
-# daemonlessly with Skopeo and loaded with the plain `docker load` CLI.
+# that the loaded image is exactly the archived image. Pre-merge CI and the
+# release workflow run the image verifier and both smoke tests against the
+# reference loaded here, so they test the same archive that
+# scripts/verify-release-archive.sh scanned instead of a second build or a
+# daemon-transport import. It never logs in, never publishes, never mounts a
+# container daemon socket and never uses the docker-daemon transport: the
+# archive is read daemonlessly with Skopeo and loaded with the plain
+# `docker load` CLI.
 #
 # Steps, in order:
 #   1. Read the selected OCI manifest digest, its config digest and the config's
@@ -16,14 +18,14 @@
 #   2. `docker load` the unchanged OCI archive. The containerd image store
 #      accepts it. The classic image store (for example Docker 28 on the GitHub
 #      ubuntu-24.04 runner) rejects a Buildx OCI archive without manifest.json.
-#      Only when the load fails or the tag is absent afterwards, convert the
+#      Only when the load fails or the reference is absent afterwards, convert the
 #      archive file-to-file into a temporary <archive-stem>.docker.tar with
 #      Skopeo (docker-archive transport, archive directory mounted, no socket),
 #      prove that the conversion kept the archived config blob and layer count,
 #      and `docker load` that file. The original archive bytes are never
 #      modified; the temporary Docker archive is removed on exit.
 #   3. Prove identity strictly for the load path taken; CLI output is never
-#      trusted and the tag must resolve with `docker image inspect`:
+#      trusted and the exact reference must resolve with `docker image inspect`:
 #        - OCI archive on the containerd image store: image ID equals the OCI
 #          manifest digest;
 #        - OCI archive on a classic image store that accepts it: image ID equals
@@ -38,9 +40,14 @@
 #
 # Usage: scripts/load-release-archive.sh <oci-archive> <image-tag>
 #
-# <image-tag> is the name:tag the archive was built with (for example
-# relanto:ci-123). Its tag part is the archive's org.opencontainers.image.ref.name
-# and addresses the manifest inside the archive.
+# <image-tag> is the exact [registry-host[:port]/]name:tag reference the archive
+# was built with, for example relanto:ci-123 in pre-merge CI or
+# ghcr.io/sebastian-software/relanto:frontend-v1.2.3 in the release workflow.
+# Buildx records that reference as io.containerd.image.name, which a containerd
+# image store restores on `docker load`, and its tag part as the archive's
+# org.opencontainers.image.ref.name, which addresses the manifest inside the
+# archive. A registry host only names the local reference: this loader never
+# contacts a registry. Digest references are rejected.
 #
 # Requirements: docker, jq, tar, sha256sum and skopeo.
 #
@@ -60,9 +67,17 @@ error() {
   exit 1
 }
 
-# name:tag without registry host or port, so the tag part is unambiguous.
-if ! [[ "${IMAGE_TAG}" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
-  error 'Image tag must be a local <name>:<tag> reference without a registry host.'
+# [registry-host[:port]/]name:tag without a digest. A registry host must carry a
+# dot or a port (for example ghcr.io or localhost:5000), so it cannot be mistaken
+# for a lowercase path component, and the tag is always the part after the last
+# colon.
+HOST_COMPONENT_PATTERN='[a-z0-9]([a-z0-9-]*[a-z0-9])?'
+REGISTRY_HOST_PATTERN="${HOST_COMPONENT_PATTERN}((\\.${HOST_COMPONENT_PATTERN})+(:[0-9]{1,5})?|:[0-9]{1,5})"
+NAME_COMPONENT_PATTERN='[a-z0-9]+([._-][a-z0-9]+)*'
+TAG_PATTERN='[A-Za-z0-9][A-Za-z0-9._-]{0,127}'
+IMAGE_REFERENCE_PATTERN="^(${REGISTRY_HOST_PATTERN}/)?${NAME_COMPONENT_PATTERN}(/${NAME_COMPONENT_PATTERN})*:${TAG_PATTERN}\$"
+if ! [[ "${IMAGE_TAG}" =~ ${IMAGE_REFERENCE_PATTERN} ]]; then
+  error 'Image tag must be a [registry-host[:port]/]<name>:<tag> reference without a digest.'
 fi
 if [ ! -f "${ARCHIVE_ARG}" ]; then
   error "OCI archive does not exist: ${ARCHIVE_ARG}"

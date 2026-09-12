@@ -140,33 +140,28 @@ jobs:
           RELEASE_TAG: ${{ steps.release-tags.outputs.release }}
         run: ./scripts/verify-release-archive.sh relanto-release.oci.tar "${RELEASE_TAG}"
 
-      - name: Import the exact archive without rebuilding
+      # Same loader as the pull-request CI container job: `docker load` of the
+      # unchanged archive, or a file-based Docker archive converted by the
+      # job's digest-pinned SKOPEO_IMAGE when the classic image store rejects
+      # the OCI archive. No socket mount, no daemon transport, no rebuild. The
+      # loaded reference is exactly the one the single build wrote into the
+      # archive; nothing is published from the local image store.
+      - name: Load the exact archive without rebuilding
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release-tags.outputs.release }}
+        run: ./scripts/load-release-archive.sh relanto-release.oci.tar "${IMAGE_REPOSITORY}:${RELEASE_TAG}"
+
+      - name: Verify and smoke-test the loaded release image
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.release-tags.outputs.release }}
         run: |
           set -euo pipefail
-          skopeo() {
-            docker run --rm \
-              --volume "${PWD}:/work" \
-              --volume /var/run/docker.sock:/var/run/docker.sock \
-              --workdir /work \
-              --entrypoint skopeo \
-              "${SKOPEO_IMAGE}" "$@"
-          }
-          skopeo copy \
-            "oci-archive:relanto-release.oci.tar:${RELEASE_TAG}" \
-            docker-daemon:relanto:release-candidate
-
-      - name: Verify and smoke-test the imported release image
-        run: |
-          set -euo pipefail
-          ./scripts/verify-container-image.sh \
-            relanto:release-candidate \
-            packages/frontend/.relanto-runtime-canary
-          ./scripts/smoke-test-container.sh relanto:release-candidate
+          ./scripts/verify-container-image.sh "${IMAGE_REPOSITORY}:${RELEASE_TAG}" packages/frontend/.relanto-runtime-canary
+          ./scripts/smoke-test-container.sh "${IMAGE_REPOSITORY}:${RELEASE_TAG}"
           SMOKE_TEST_OPERATOR_ASSETS_FIXTURE=true \
-            ./scripts/smoke-test-container.sh relanto:release-candidate
+            ./scripts/smoke-test-container.sh "${IMAGE_REPOSITORY}:${RELEASE_TAG}"
           sha256sum --check relanto-release.oci.tar.sha256
 
       - name: Publish canonical release tag and reconcile moving tags

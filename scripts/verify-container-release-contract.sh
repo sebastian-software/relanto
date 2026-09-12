@@ -143,10 +143,8 @@ require_pattern "${RELEASE_WORKFLOW}" 'type=oci[^[:cntrl:]]*relanto-release\.oci
   'the single release build must emit an OCI archive'
 require_pattern "${RELEASE_WORKFLOW}" 'oci-archive:.*relanto-release\.oci\.tar' \
   'smoke, scan and publication must address the same OCI archive'
-require_pattern "${RELEASE_WORKFLOW}" 'docker-daemon:' \
-  'the release archive must be imported for the existing container smoke test without rebuilding'
 require_pattern "${RELEASE_WORKFLOW}" 'scripts/smoke-test-container\.sh' \
-  'the imported release image must pass the repository-native smoke test'
+  'the loaded release image must pass the repository-native smoke test'
 require_pattern "${RELEASE_WORKFLOW}" 'packages/frontend/\.env\.context-canary' \
   'release must prove that its context canary never reaches the build context'
 require_pattern "${RELEASE_WORKFLOW}" '(--target[=[:space:]]+context-probe|target:[[:space:]]*context-probe)' \
@@ -283,17 +281,84 @@ if [ -f "${RELEASE_ARCHIVE_LOADER}" ]; then
     'the archive loader must accept a classic-store image only by config digest'
   require_pattern "${RELEASE_ARCHIVE_LOADER}" 'loaded_layers\}"[[:space:]]+!=[[:space:]]+"\$\{archive_diff_ids\}"' \
     'the archive loader must compare loaded RootFS layers with the archived diff_ids'
+  # The release loads a registry-qualified reference, CI a local one. Both must
+  # pass one anchored, digest-free validation before any archive is read, and
+  # the tag part must stay the archive's ref name.
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" '^if ! \[\[ "\$\{IMAGE_TAG\}" =~ \$\{IMAGE_REFERENCE_PATTERN\} \]\]; then$' \
+    'the archive loader must validate the image reference before reading the archive'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" '^IMAGE_REFERENCE_PATTERN="\^\(\$\{REGISTRY_HOST_PATTERN\}/\)\?\$\{NAME_COMPONENT_PATTERN\}\(/\$\{NAME_COMPONENT_PATTERN\}\)\*:\$\{TAG_PATTERN\}\\\$"$' \
+    'the archive loader reference validation must be anchored and end in a mandatory tag'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" '^REF_NAME="\$\{IMAGE_TAG##\*:\}"$' \
+    'the archive loader must address the archived manifest by the tag part of the reference'
+  if ! bash -c '
+    set -euo pipefail
+    eval "$(grep -E "^(HOST_COMPONENT|REGISTRY_HOST|NAME_COMPONENT|TAG|IMAGE_REFERENCE)_PATTERN=" "$1")"
+    for reference in relanto:ci-123 ghcr.io/sebastian-software/relanto:frontend-v1.2.3 localhost:5000/relanto:ci-123; do
+      [[ "${reference}" =~ ${IMAGE_REFERENCE_PATTERN} ]] || { echo "FAIL: loader rejects valid reference ${reference}" >&2; exit 1; }
+    done
+    for reference in relanto ghcr.io/sebastian-software/relanto \
+      "ghcr.io/sebastian-software/relanto@sha256:$(printf "%064d" 0)" \
+      "ghcr.io/sebastian-software/relanto:v1@sha256:$(printf "%064d" 0)" \
+      https://ghcr.io/sebastian-software/relanto:v1 ghcr.io//relanto:v1 \
+      GHCR.IO/sebastian-software/relanto:v1 "relanto:v1 extra" relanto:-v1; do
+      if [[ "${reference}" =~ ${IMAGE_REFERENCE_PATTERN} ]]; then
+        echo "FAIL: loader accepts invalid reference ${reference}" >&2
+        exit 1
+      fi
+    done
+  ' _ "${RELEASE_ARCHIVE_LOADER}"; then
+    fail "the archive loader must accept exactly [registry-host[:port]/]name:tag references without a digest (${RELEASE_ARCHIVE_LOADER})"
+  fi
 fi
 
-# Release order: build, shared gate, import and smoke, then publication.
-gate_line="$(first_line "${RELEASE_WORKFLOW}" 'scripts/verify-release-archive\.sh')"
+# The release workflow loads its archive with the same socket-free loader as
+# pre-merge CI. The loaded reference is the one the single build wrote into the
+# archive (IMAGE_REPOSITORY:RELEASE_TAG); the image verifier and both smoke
+# tests must target exactly that reference.
+forbid_pattern "${RELEASE_WORKFLOW}" '(docker\.sock|docker-daemon:)' \
+  'the release workflow must not mount a container daemon socket or import through the docker-daemon transport'
+require_pattern "${RELEASE_WORKFLOW}" 'IMAGE_REPOSITORY:[[:space:]]*ghcr\.io/sebastian-software/relanto[[:space:]]*$' \
+  'the release workflow must name the GHCR repository that the single build tags'
+require_pattern "${RELEASE_WORKFLOW}" 'tags:[[:space:]]*ghcr\.io/sebastian-software/relanto:\$\{\{[[:space:]]*steps\.release-tags\.outputs\.release[[:space:]]*\}\}' \
+  'the single release build must carry the reference that the release loader restores'
+require_pattern "${RELEASE_WORKFLOW}" 'scripts/load-release-archive\.sh[[:space:]]+relanto-release\.oci\.tar[[:space:]]+"\$\{IMAGE_REPOSITORY\}:\$\{RELEASE_TAG\}"' \
+  'the release workflow must load the verified release archive with the shared identity-proving helper'
+release_load_count="$(grep -E -c 'scripts/load-release-archive\.sh' "${RELEASE_WORKFLOW}" || true)"
+if [ "${release_load_count}" -ne 1 ]; then
+  fail "the release workflow must load the release archive exactly once (found ${release_load_count} loader calls)"
+fi
+require_pattern "${RELEASE_WORKFLOW}" 'scripts/verify-container-image\.sh[[:space:]]+"\$\{IMAGE_REPOSITORY\}:\$\{RELEASE_TAG\}"[[:space:]]+packages/frontend/\.relanto-runtime-canary' \
+  'the release workflow must run the image verifier against the loaded release archive'
+release_verifier_count="$(grep -E -c 'scripts/verify-container-image\.sh' "${RELEASE_WORKFLOW}" || true)"
+release_loaded_verifier_count="$(grep -E -c 'scripts/verify-container-image\.sh[[:space:]]+"\$\{IMAGE_REPOSITORY\}:\$\{RELEASE_TAG\}"' "${RELEASE_WORKFLOW}" || true)"
+if [ "${release_verifier_count}" -ne "${release_loaded_verifier_count}" ]; then
+  fail 'every release image verifier run must target the loaded release archive'
+fi
+release_smoke_count="$(grep -E -c 'scripts/smoke-test-container\.sh' "${RELEASE_WORKFLOW}" || true)"
+release_loaded_smoke_count="$(grep -E -c 'scripts/smoke-test-container\.sh[[:space:]]+"\$\{IMAGE_REPOSITORY\}:\$\{RELEASE_TAG\}"' "${RELEASE_WORKFLOW}" || true)"
+if [ "${release_loaded_smoke_count}" -ne 2 ] || [ "${release_smoke_count}" -ne "${release_loaded_smoke_count}" ]; then
+  fail "the release workflow must run exactly the standard and the operator-assets smoke test against the loaded release archive (found ${release_loaded_smoke_count} of ${release_smoke_count})"
+fi
+require_pattern "${RELEASE_WORKFLOW}" 'SMOKE_TEST_OPERATOR_ASSETS_FIXTURE=true' \
+  'the release workflow must smoke-test the operator-assets fixture of the loaded release archive'
+
+# Release order: build, shared gate, archive load, image verifier and smoke
+# tests, checksum re-verification, then publication.
 build_line="$(first_line "${RELEASE_WORKFLOW}" 'uses:[[:space:]]*docker/build-push-action@')"
-import_line="$(first_line "${RELEASE_WORKFLOW}" 'docker-daemon:')"
+gate_line="$(first_line "${RELEASE_WORKFLOW}" '\./scripts/verify-release-archive\.sh[[:space:]]')"
+load_line="$(first_line "${RELEASE_WORKFLOW}" '\./scripts/load-release-archive\.sh[[:space:]]')"
+verifier_line="$(first_line "${RELEASE_WORKFLOW}" '\./scripts/verify-container-image\.sh[[:space:]]')"
+first_smoke_line="$(first_line "${RELEASE_WORKFLOW}" '\./scripts/smoke-test-container\.sh[[:space:]]')"
+last_smoke_line="$(last_line "${RELEASE_WORKFLOW}" '\./scripts/smoke-test-container\.sh[[:space:]]')"
+smoke_checksum_line="$(first_line "${RELEASE_WORKFLOW}" 'sha256sum[[:space:]]+--check[[:space:]]+relanto-release\.oci\.tar\.sha256')"
 publish_line="$(first_line "${RELEASE_WORKFLOW}" '--digestfile[=[:space:]]+[^[:space:]]*relanto-release\.digest')"
-if [ -z "${gate_line}" ] || [ -z "${build_line}" ] || [ -z "${import_line}" ] || [ -z "${publish_line}" ] || \
-  [ "${build_line}" -ge "${gate_line}" ] || [ "${gate_line}" -ge "${import_line}" ] || \
-  [ "${import_line}" -ge "${publish_line}" ]; then
-  fail 'release must run build, shared archive gate, import and smoke, and publication in this order'
+if [ -z "${build_line}" ] || [ -z "${gate_line}" ] || [ -z "${load_line}" ] || \
+  [ -z "${verifier_line}" ] || [ -z "${first_smoke_line}" ] || [ -z "${last_smoke_line}" ] || \
+  [ -z "${smoke_checksum_line}" ] || [ -z "${publish_line}" ] || \
+  [ "${build_line}" -ge "${gate_line}" ] || [ "${gate_line}" -ge "${load_line}" ] || \
+  [ "${load_line}" -ge "${verifier_line}" ] || [ "${verifier_line}" -ge "${first_smoke_line}" ] || \
+  [ "${last_smoke_line}" -ge "${smoke_checksum_line}" ] || [ "${smoke_checksum_line}" -ge "${publish_line}" ]; then
+  fail 'release must run build, shared archive gate, archive load, image verifier, smoke tests, checksum re-verification and publication in this order'
 fi
 
 if [ -f "${RELEASE_ARCHIVE_GATE}" ]; then
