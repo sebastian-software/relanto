@@ -26,11 +26,11 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.13.1",
     "@types/nodemailer": "^8.0.0",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.6.0",
     "eslint-config-setup": "^0.4.0",
     "oxlint": "^1.73.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
