@@ -28,6 +28,7 @@ Diese ADR enthält die versionierte Effective-Flow-Konfiguration dieses Projekts
 | delivery.branchPrefix             | firmo                      |
 | delivery.completion               | pr                         |
 | delivery.returnBranch             | auto                       |
+| delivery.prReview                 | always                     |
 | mergeGate.completion              | merge                      |
 | mergeGate.bots                    | recensor                   |
 | mergeGate.bots.recensor.trigger   | /recensor review           |
