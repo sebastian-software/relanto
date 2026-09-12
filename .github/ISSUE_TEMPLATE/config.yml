@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Report a security vulnerability by email
+  - name: Sicherheitslücke per E-Mail melden
     url: https://github.com/sebastian-software/relanto/blob/main/SECURITY.md
-    about: Do not open a public issue. Email security@sebastian-software.de - this route always works, whatever the repository's settings are.
-  - name: Report a security vulnerability as a private advisory
+    about: Erstelle kein öffentliches Issue. Schreibe an security@sebastian-software.de. Dieser Weg funktioniert immer, unabhängig von den Einstellungen des Repositorys.
+  - name: Sicherheitslücke als privates Advisory melden
     url: https://github.com/sebastian-software/relanto/security/advisories/new
-    about: Do not open a public issue. Works once private vulnerability reporting is enabled for this repository; otherwise use the email route above.
+    about: Erstelle kein öffentliches Issue. Funktioniert, sobald GitHub Private Vulnerability Reporting für dieses Repository aktiviert ist. Andernfalls nutze den E-Mail-Weg oben.

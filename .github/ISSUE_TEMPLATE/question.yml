@@ -1,24 +1,24 @@
-name: Question
-description: Ask a focused usage or contributor question.
-title: "[Question]: "
+name: Frage stellen
+description: Stelle eine konkrete Frage zur Nutzung oder zur Mitarbeit.
+title: "[Frage]: "
 labels:
   - question
 body:
   - type: markdown
     attributes:
       value: |
-        Read `SUPPORT.md` and the documentation first. When this repository has Discussions enabled, ask there instead.
+        Lies zuerst `SUPPORT.md` und die Dokumentation. Wenn in diesem Repository Discussions aktiviert sind, stelle deine Frage bitte dort.
 
   - type: textarea
     id: question
     attributes:
-      label: Question
-      description: What are you trying to do, and where are you blocked?
+      label: Frage
+      description: Was möchtest du erreichen, und wo kommst du nicht weiter?
     validations:
       required: true
 
   - type: textarea
     id: context
     attributes:
-      label: Context
-      description: The command or API call, the version, and the documentation page involved. Remove credentials and private data.
+      label: Kontext
+      description: Der betroffene Befehl oder API-Aufruf, die Version und die zugehörige Dokumentationsseite. Entferne Zugangsdaten und private Daten.
