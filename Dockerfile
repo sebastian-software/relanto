@@ -75,6 +75,14 @@ ENV RELANTO_GIT_SHORT_SHA=$RELANTO_GIT_SHORT_SHA
 
 WORKDIR /app
 
+# The base image still ships libpcre2-8-0 10.42-1, which is affected by
+# CVE-2026-86145 and CVE-2026-89161 (fixed in 10.42-1+deb12u1 from
+# bookworm-security). Upgrade only that package; drop this step once the
+# node:24 bookworm-slim base ships libpcre2-8-0 >= 10.42-1+deb12u1.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends --only-upgrade libpcre2-8-0 \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build --chown=node:node /app/runtime ./
 
 # Run as the unprivileged "node" user (uid/gid 1000, shipped by the base image)

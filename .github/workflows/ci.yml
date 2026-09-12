@@ -26,6 +26,36 @@ jobs:
       - name: "Guard: agent step not yet completed for this PR"
         run: test ! -f .standards/pending.json
 
+      - name: "Guard: no blocking agent findings for this PR"
+        run: |
+          node -e "
+          const { existsSync, readFileSync } = require('node:fs');
+          const file = '.standards/blocked.json';
+          if (!existsSync(file)) { process.exit(0); }
+          const raw = readFileSync(file, 'utf8');
+          console.log(raw);
+          const fail = (detail) => { console.error('Refusing to pass ' + file + ': ' + detail); process.exit(1); };
+          let state;
+          try { state = JSON.parse(raw); } catch (error) { fail('it is not valid JSON - ' + error.message); }
+          if (typeof state !== 'object' || state === null || Array.isArray(state)) { fail('it is not a JSON object.'); }
+          const orNull = (value, type) => value === null || typeof value === type;
+          const broken = [
+            ['schemaVersion must be 1', state.schemaVersion !== 1],
+            ['blocking must be a boolean', typeof state.blocking !== 'boolean'],
+            ['reason must be a string', typeof state.reason !== 'string'],
+            ['detectedAt must be a string', typeof state.detectedAt !== 'string'],
+            ['expectedStandardsVersion must be a number', typeof state.expectedStandardsVersion !== 'number'],
+            ['observedStandardsVersion must be a number or null', !orNull(state.observedStandardsVersion, 'number')],
+            ['expectedCliVersion must be a string or null', !orNull(state.expectedCliVersion, 'string')],
+            ['observedCliVersion must be a string or null', !orNull(state.observedCliVersion, 'string')],
+            ['failedChecks must be an array of strings', !Array.isArray(state.failedChecks) || !state.failedChecks.every((entry) => typeof entry === 'string')],
+            ['retry must be a string', typeof state.retry !== 'string'],
+          ].filter((entry) => entry[1]).map((entry) => entry[0]);
+          if (broken.length > 0) { fail('it does not match the documented schema - ' + broken.join('; ')); }
+          if (state.blocking) { fail('the agent could not validate its result.'); }
+          console.log('The agent marker is non-blocking; its findings are reviewer context.');
+          "
+
       # Single source of truth for the check steps: agent:check:ci runs the same
       # lint/format:check/typecheck/build/test chain as the local agent:check, so
       # CI and local runs can never diverge.
@@ -104,11 +134,19 @@ jobs:
       - name: Coverage (enforces thresholds)
         run: pnpm run --if-present test:coverage
 
-      # minimum-release-age=0: pnpm 11 holds back versions <24h old, so without
-      # it `check` resolves a stale standards CLI while the stamp was written by
-      # apply against the true latest — a freshly released version reads as false
-      # drift. Mirrors the apply invocation in renovate-config/standards.json.
-      - run: pnpm --config.minimum-release-age=0 dlx @sebastian-software/standards check
+      - name: "Guard: the pinned standards CLI matches the repository stamp"
+        run: |
+          node -p "
+          const meta = require('./.repometa.json');
+          const paths = [process.cwd(), ...(meta.workspaces ?? [])];
+          const manifest = require(require.resolve('@sebastian-software/standards/manifest.json', { paths }));
+          if (manifest.currentVersion !== meta.standards) {
+            throw new Error('The installed @sebastian-software/standards ships manifest version ' + manifest.currentVersion + ', but .repometa.json is stamped ' + meta.standards + '. Raise the pin to the release whose manifest is version ' + meta.standards + ' and refresh the lockfile.');
+          }
+          'standards CLI and repository stamp are aligned at version ' + meta.standards
+          "
+
+      - run: pnpm exec standards check
 
       # SCA gate for production dependencies (e.g. nodemailer, better-sqlite3,
       # openid-client). --prod scopes the scan to shipped code so dev-tooling
