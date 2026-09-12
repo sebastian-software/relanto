@@ -31,6 +31,11 @@ jobs:
       # CI and local runs can never diverge.
       - run: pnpm agent:check:ci
 
+      # Static release contract lives outside the standards-managed agent:check
+      # chain, so it is invoked explicitly here.
+      - name: Verify container release contract
+        run: pnpm test:container-release-contract
+
       - name: Guard standard source and build asset boundary
         shell: bash
         run: |
