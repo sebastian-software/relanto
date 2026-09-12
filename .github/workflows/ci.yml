@@ -162,6 +162,9 @@ jobs:
     # instead of surfacing only at release time. Mirrors the build in
     # release-please.yml but never pushes.
     runs-on: ubuntu-latest
+    env:
+      # Tag written into the single OCI archive and restored by docker load.
+      LOADED_IMAGE: relanto:ci-${{ github.run_id }}
 
     steps:
       - uses: actions/checkout@v7
@@ -191,55 +194,13 @@ jobs:
             --target runtime-probe \
             .
 
-      - name: Build image (no push)
-        uses: docker/build-push-action@v7
-        with:
-          build-args: |
-            RELANTO_GIT_SHORT_SHA=${{ github.sha }}
-          context: .
-          file: ./Dockerfile
-          load: true
-          platforms: linux/amd64
-          provenance: false
-          push: false
-          tags: relanto:smoke-test
-
-      - name: Verify final image inventory and metadata
-        run: |
-          ./scripts/verify-container-image.sh \
-            relanto:smoke-test \
-            packages/frontend/.relanto-runtime-canary
-
-      # Scan the freshly built image (OS packages + bundled node_modules) for
-      # known CVEs before it is ever a release candidate. Nothing is pushed
-      # here, so this is the last gate that inspects the actual image contents.
-      # exit-code=1 fails the job; severity is capped at HIGH/CRITICAL to match
-      # the pnpm audit gate in `check` and avoid noise from low/medium findings.
-      - name: Scan image for vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: relanto:smoke-test
-          format: table
-          exit-code: 1
-          ignore-unfixed: true
-          severity: HIGH,CRITICAL
-          # Suppress specific, separately-tracked findings (see .trivyignore).
-          trivyignores: .trivyignore
-
-      - name: Smoke-test the standard container image
-        run: ./scripts/smoke-test-container.sh relanto:smoke-test
-
-      - name: Smoke-test the operator-assets fixture
-        env:
-          SMOKE_TEST_OPERATOR_ASSETS_FIXTURE: "true"
-        run: ./scripts/smoke-test-container.sh relanto:smoke-test
-
-      # Non-publishing pre-merge release archive gate. It builds one
-      # linux/amd64 OCI archive exactly like the release build (BuildKit reuses
-      # the cache of the image build above) and runs the same
-      # scripts/verify-release-archive.sh as release-please.yml: Trivy positive
-      # control, secret scan of the unpacked archive and a skopeo
-      # --preserve-digests/--digestfile proof into a local OCI layout. No
+      # Non-publishing pre-merge release gate. It builds exactly one
+      # linux/amd64 OCI archive like the release build and then tests only that
+      # archive: the same scripts/verify-release-archive.sh as release-please.yml
+      # (Trivy positive control, secret scan of the unpacked archive and a
+      # skopeo --preserve-digests/--digestfile proof into a local OCI layout),
+      # followed by `docker load` of the unchanged archive, an identity proof,
+      # the image verifier, the vulnerability scan and both smoke tests. No
       # registry login, no push, no docker socket mount.
       - name: Build the linux/amd64 release OCI archive (no push)
         uses: docker/build-push-action@v7
@@ -252,7 +213,7 @@ jobs:
           platforms: linux/amd64
           provenance: false
           push: false
-          tags: relanto:ci-${{ github.run_id }}
+          tags: ${{ env.LOADED_IMAGE }}
 
       - name: Prepare harmless Trivy bootstrap target
         run: mkdir .trivy-bootstrap-empty
@@ -275,3 +236,41 @@ jobs:
           RELEASE_TAG: ci-${{ github.run_id }}
           SKOPEO_IMAGE: quay.io/skopeo/stable@sha256:4a16d57b37617a04b3d643079a477a2848efe892dffcdf0ce56df4262b65f810
         run: ./scripts/verify-release-archive.sh relanto-release.oci.tar "${RELEASE_TAG}"
+
+      # Load the exact archive with the plain Docker CLI (no socket mount, no
+      # docker-daemon transport) and prove that the loaded tag carries the
+      # archived manifest or config digest and rootfs.diff_ids.
+      - name: Load the verified release archive
+        env:
+          SKOPEO_IMAGE: quay.io/skopeo/stable@sha256:4a16d57b37617a04b3d643079a477a2848efe892dffcdf0ce56df4262b65f810
+        run: ./scripts/load-release-archive.sh relanto-release.oci.tar "${LOADED_IMAGE}"
+
+      - name: Verify final image inventory and metadata
+        run: ./scripts/verify-container-image.sh "${LOADED_IMAGE}" packages/frontend/.relanto-runtime-canary
+
+      # Scan the loaded release archive image (OS packages + bundled
+      # node_modules) for known CVEs before it is ever a release candidate.
+      # exit-code=1 fails the job; severity is capped at HIGH/CRITICAL to match
+      # the pnpm audit gate in `check` and avoid noise from low/medium findings.
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.LOADED_IMAGE }}
+          format: table
+          exit-code: 1
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          # Suppress specific, separately-tracked findings (see .trivyignore).
+          trivyignores: .trivyignore
+          version: v0.70.0
+
+      - name: Smoke-test the standard container image
+        run: ./scripts/smoke-test-container.sh "${LOADED_IMAGE}"
+
+      - name: Smoke-test the operator-assets fixture
+        env:
+          SMOKE_TEST_OPERATOR_ASSETS_FIXTURE: "true"
+        run: ./scripts/smoke-test-container.sh "${LOADED_IMAGE}"
+
+      - name: Re-verify the release archive bytes after the smoke tests
+        run: sha256sum --check relanto-release.oci.tar.sha256

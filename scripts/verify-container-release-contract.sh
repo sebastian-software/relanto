@@ -41,12 +41,21 @@ require_file() {
   fi
 }
 
+first_line() {
+  grep -E -n -m 1 -- "$2" "$1" | cut -d : -f 1 || true
+}
+
+last_line() {
+  grep -E -n -- "$2" "$1" | tail -n 1 | cut -d : -f 1 || true
+}
+
 DOCKERIGNORE=.dockerignore
 DOCKERFILE=Dockerfile
 CI_WORKFLOW=.github/workflows/ci.yml
 RELEASE_WORKFLOW=.github/workflows/release-please.yml
 IMAGE_VERIFIER=scripts/verify-container-image.sh
 RELEASE_ARCHIVE_GATE=scripts/verify-release-archive.sh
+RELEASE_ARCHIVE_LOADER=scripts/load-release-archive.sh
 
 # The canary lives at a path that a recursive local-secret rule must exclude.
 require_pattern "${DOCKERIGNORE}" '^\*\*/\.env$' \
@@ -191,10 +200,82 @@ require_pattern "${CI_WORKFLOW}" 'type=oci,dest=relanto-release\.oci\.tar' \
 forbid_pattern "${CI_WORKFLOW}" '(docker/login-action|push:[[:space:]]*true|docker\.sock|docker-daemon:)' \
   'the pre-merge archive gate must not log in, push or reach a container daemon socket'
 
+# Pre-merge CI builds exactly one OCI archive, loads that archive and runs the
+# image verifier, the vulnerability scan and both smoke tests against the loaded
+# tag. A second `load: true` image would leave the archive itself untested.
+ci_build_action_count="$(grep -E -c 'uses:[[:space:]]*docker/build-push-action@' "${CI_WORKFLOW}" || true)"
+if [ "${ci_build_action_count}" -ne 1 ]; then
+  fail "CI must build the container image exactly once as the release OCI archive (found ${ci_build_action_count} build-push-action steps)"
+fi
+forbid_pattern "${CI_WORKFLOW}" 'load:[[:space:]]*true' \
+  'CI must not build a separate daemon-loaded image next to the release archive'
+forbid_pattern "${CI_WORKFLOW}" 'relanto:smoke-test' \
+  'CI must test the loaded release archive instead of a separately built smoke-test image'
+require_pattern "${CI_WORKFLOW}" 'LOADED_IMAGE:[[:space:]]*relanto:ci-\$\{\{[[:space:]]*github\.run_id[[:space:]]*\}\}' \
+  'CI must define the per-run tag of the loaded release archive'
+require_pattern "${CI_WORKFLOW}" 'tags:[[:space:]]*\$\{\{[[:space:]]*env\.LOADED_IMAGE[[:space:]]*\}\}' \
+  'the single CI archive build must carry the tag that docker load restores'
+require_pattern "${CI_WORKFLOW}" 'RELEASE_TAG:[[:space:]]*ci-\$\{\{[[:space:]]*github\.run_id[[:space:]]*\}\}' \
+  'the CI archive gate must address the tag part of the loaded archive tag'
+require_pattern "${CI_WORKFLOW}" 'scripts/load-release-archive\.sh[[:space:]]+relanto-release\.oci\.tar[[:space:]]+"\$\{LOADED_IMAGE\}"' \
+  'CI must load the verified release archive with the shared identity-proving helper'
+require_pattern "${CI_WORKFLOW}" 'scripts/verify-container-image\.sh[[:space:]]+"\$\{LOADED_IMAGE\}"[[:space:]]+packages/frontend/\.relanto-runtime-canary' \
+  'CI must run the image verifier against the loaded release archive'
+ci_verifier_count="$(grep -E -c 'scripts/verify-container-image\.sh' "${CI_WORKFLOW}" || true)"
+ci_loaded_verifier_count="$(grep -E -c 'scripts/verify-container-image\.sh[[:space:]]+"\$\{LOADED_IMAGE\}"' "${CI_WORKFLOW}" || true)"
+if [ "${ci_verifier_count}" -ne "${ci_loaded_verifier_count}" ]; then
+  fail 'every CI image verifier run must target the loaded release archive'
+fi
+require_pattern "${CI_WORKFLOW}" 'image-ref:[[:space:]]*\$\{\{[[:space:]]*env\.LOADED_IMAGE[[:space:]]*\}\}' \
+  'the CI vulnerability scan must inspect the loaded release archive'
+ci_smoke_count="$(grep -E -c 'scripts/smoke-test-container\.sh' "${CI_WORKFLOW}" || true)"
+ci_loaded_smoke_count="$(grep -E -c 'scripts/smoke-test-container\.sh[[:space:]]+"\$\{LOADED_IMAGE\}"' "${CI_WORKFLOW}" || true)"
+if [ "${ci_loaded_smoke_count}" -ne 2 ] || [ "${ci_smoke_count}" -ne "${ci_loaded_smoke_count}" ]; then
+  fail "CI must run exactly the standard and the operator-assets smoke test against the loaded release archive (found ${ci_loaded_smoke_count} of ${ci_smoke_count})"
+fi
+require_pattern "${CI_WORKFLOW}" 'SMOKE_TEST_OPERATOR_ASSETS_FIXTURE:[[:space:]]*"?true"?' \
+  'CI must smoke-test the operator-assets fixture of the loaded release archive'
+require_pattern "${CI_WORKFLOW}" 'sha256sum[[:space:]]+--check[[:space:]]+relanto-release\.oci\.tar\.sha256' \
+  'CI must re-verify the release archive bytes after the smoke tests'
+
+ci_build_line="$(first_line "${CI_WORKFLOW}" 'uses:[[:space:]]*docker/build-push-action@')"
+ci_gate_line="$(first_line "${CI_WORKFLOW}" '\./scripts/verify-release-archive\.sh[[:space:]]')"
+ci_load_line="$(first_line "${CI_WORKFLOW}" '\./scripts/load-release-archive\.sh[[:space:]]')"
+ci_verifier_line="$(first_line "${CI_WORKFLOW}" '\./scripts/verify-container-image\.sh[[:space:]]')"
+ci_first_smoke_line="$(first_line "${CI_WORKFLOW}" '\./scripts/smoke-test-container\.sh[[:space:]]')"
+ci_last_smoke_line="$(last_line "${CI_WORKFLOW}" '\./scripts/smoke-test-container\.sh[[:space:]]')"
+ci_checksum_line="$(last_line "${CI_WORKFLOW}" 'sha256sum[[:space:]]+--check[[:space:]]+relanto-release\.oci\.tar\.sha256')"
+if [ -z "${ci_build_line}" ] || [ -z "${ci_gate_line}" ] || [ -z "${ci_load_line}" ] || \
+  [ -z "${ci_verifier_line}" ] || [ -z "${ci_first_smoke_line}" ] || [ -z "${ci_last_smoke_line}" ] || \
+  [ -z "${ci_checksum_line}" ] || \
+  [ "${ci_build_line}" -ge "${ci_gate_line}" ] || [ "${ci_gate_line}" -ge "${ci_load_line}" ] || \
+  [ "${ci_load_line}" -ge "${ci_verifier_line}" ] || [ "${ci_verifier_line}" -ge "${ci_first_smoke_line}" ] || \
+  [ "${ci_last_smoke_line}" -ge "${ci_checksum_line}" ]; then
+  fail 'CI must run build, shared archive gate, archive load, image verifier, smoke tests and checksum re-verification in this order'
+fi
+
+require_file "${RELEASE_ARCHIVE_LOADER}" \
+  'a daemon-socket-free loader for the verified release archive must exist'
+if [ -f "${RELEASE_ARCHIVE_LOADER}" ]; then
+  forbid_pattern "${RELEASE_ARCHIVE_LOADER}" '(docker\.sock|docker-daemon:|docker://|login|push)' \
+    'the archive loader must not mount a daemon socket, use a daemon or registry transport, log in or publish'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'docker[[:space:]]+load[[:space:]]+--input' \
+    'the archive loader must load the unchanged OCI archive with the Docker CLI'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'skopeo[[:space:]]+inspect[[:space:]]+--raw' \
+    'the archive loader must read the archived manifest config digest'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'skopeo[[:space:]]+inspect[[:space:]]+--config' \
+    'the archive loader must read the archived config rootfs.diff_ids'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'SOURCE_DIGEST_NAME="\$\{ARCHIVE_STEM\}\.source\.digest"' \
+    'the archive loader must compare against the digest recorded by the archive gate'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'loaded_id\}"[[:space:]]+=[[:space:]]+"\$\{manifest_digest\}"' \
+    'the archive loader must accept a containerd-store image only by manifest digest'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'loaded_id\}"[[:space:]]+=[[:space:]]+"\$\{config_digest\}"' \
+    'the archive loader must accept a classic-store image only by config digest'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'loaded_layers\}"[[:space:]]+!=[[:space:]]+"\$\{archive_diff_ids\}"' \
+    'the archive loader must compare loaded RootFS layers with the archived diff_ids'
+fi
+
 # Release order: build, shared gate, import and smoke, then publication.
-first_line() {
-  grep -E -n -m 1 -- "$2" "$1" | cut -d : -f 1 || true
-}
 gate_line="$(first_line "${RELEASE_WORKFLOW}" 'scripts/verify-release-archive\.sh')"
 build_line="$(first_line "${RELEASE_WORKFLOW}" 'uses:[[:space:]]*docker/build-push-action@')"
 import_line="$(first_line "${RELEASE_WORKFLOW}" 'docker-daemon:')"
