@@ -3,6 +3,10 @@
   "version": "0.19.8",
   "private": true,
   "license": "MIT",
+  "files": [
+    "build",
+    "serverStartup.mjs"
+  ],
   "type": "module",
   "scripts": {
     "build": "react-router build",

@@ -1,5 +1,15 @@
 # syntax=docker/dockerfile:1.25
 
+FROM node:24.18.0-bookworm-slim AS context-probe
+
+# Die Probe kopiert bewusst den gesamten von BuildKit übertragenen Kontext. So
+# wird geprüft, dass die geheime Canary bereits vor dem ersten COPY fehlt.
+WORKDIR /context
+COPY . ./
+RUN set -eu; \
+  test ! -e packages/frontend/.env.context-canary; \
+  test -f packages/frontend/.env.development.example
+
 FROM node:24.18.0-bookworm-slim AS build
 
 ENV PNPM_HOME=/pnpm
@@ -44,6 +54,17 @@ RUN set -eu; \
   test ! -e /app/runtime/build/client/operator-assets; \
   ! grep -R -I -q -E "${scoped_asset_package_pattern}" /app/runtime; \
   ! grep -R -I -q -E '(Sa''ns|Ser''if|Sl''ab)' /app/runtime
+
+FROM build AS runtime-probe
+
+# Die Laufzeit-Canary muss im Build-Arbeitsbereich vorhanden sein, darf aber
+# nicht in das per pnpm deploy erzeugte Laufzeitverzeichnis gelangen.
+# Zugangsdaten für künftige Builds dürfen ausschließlich über kurzlebige
+# BuildKit-Secret-Mounts eingebunden werden, nie über ARG, ENV, Labels oder COPY.
+RUN set -eu; \
+  test -f /app/packages/frontend/.relanto-runtime-canary; \
+  test ! -e /app/runtime/.relanto-runtime-canary; \
+  test ! -e /app/runtime/packages/frontend/.relanto-runtime-canary
 
 FROM node:24.18.0-bookworm-slim AS runtime
 

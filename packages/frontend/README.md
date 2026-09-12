@@ -150,7 +150,7 @@ Alle Werte haben Defaults; ungültige oder zu kleine Werte fallen auf den Defaul
 
 ## Deployment
 
-Relanto wird als einzelnes Container-Image für das pnpm-Workspace gebaut und über GitHub Releases nach GHCR veröffentlicht.
+Relanto wird als einzelnes Container-Image für das pnpm-Workspace gebaut und über GitHub Releases nach GHCR veröffentlicht. Während der aktuellen PR-1-Übergangsphase bleibt das GHCR-Paket privat; ein anonymer Pull wird noch nicht unterstützt oder dokumentiert.
 
 - Ziel-Image: `ghcr.io/sebastian-software/relanto`
 - Release-Quelle: `release-please`
@@ -163,24 +163,70 @@ Die Verarbeitung wartender `queued`- und `retry_scheduled`-Jobs hängt damit nic
 ### GitHub Actions
 
 - `.github/workflows/release-please.yml` erstellt Release-PRs und GitHub-Releases auf `main`
-- derselbe Workflow baut und pusht danach das Container-Image nach GHCR, wenn für `packages/frontend` ein Release erzeugt wurde
+- derselbe Workflow baut das Release-Image genau einmal als OCI-Archiv und pusht es danach nach GHCR, wenn für `packages/frontend` ein Release erzeugt wurde
+- Archiv-Checksum, Smoke-Test, Trivy-Secret-Scan und Skopeo-Publish beziehen sich auf dasselbe OCI-Archiv; der Scan belegt „keine erkannten Secrets unter den aktiven Trivy-Regeln“, nicht die absolute Abwesenheit jeglicher Secrets
+- `skopeo copy --digestfile` und frische Registry-Abfragen müssen denselben OCI-Manifest-Digest für Release-Tag, `sha-<short-sha>` und `latest` bestätigen
 - der Containerpfad nutzt `node:24-bookworm-slim` als aktuelle Runtime-Basis für Build und Betrieb
+- das künftige vorgebaute GHCR-Image unterstützt ausschließlich `linux/amd64`
 
-### Container-Build lokal
+### Credential-freier lokaler Container-Start
+
+Der primäre Installationsweg in der privaten Übergangsphase ist ein frischer Clone des öffentlichen Repositorys mit lokalem Podman-Build. Dafür sind weder npm- noch GitHub- oder Registry-Zugangsdaten erforderlich. Das Startbeispiel setzt alle sechs Pflichtvariablen; `MAILER_DB_PATH` verweist auf das persistente Volume:
 
 ```bash
+git clone https://github.com/sebastian-software/relanto.git
+cd relanto
 podman build --build-arg RELANTO_GIT_SHORT_SHA=$(git rev-parse --short HEAD) -t ghcr.io/sebastian-software/relanto:local .
+
+APP_SESSION_SECRET="$(openssl rand -hex 32)"
+MAILER_SECRET_KEY="$(openssl rand -hex 32)"
+podman volume create relanto-data
+podman run --rm --name relanto \
+  --publish 3000:3000 \
+  --env NODE_ENV=production \
+  --env APP_SESSION_SECRET="${APP_SESSION_SECRET}" \
+  --env MAILER_SECRET_KEY="${MAILER_SECRET_KEY}" \
+  --env MAILER_DB_PATH=/var/lib/relanto/mailer.sqlite \
+  --env POCKET_ID_ISSUER=https://pocket-id.example.com \
+  --env POCKET_ID_CLIENT_ID=mailer \
+  --env POCKET_ID_REDIRECT_URI=http://localhost:3000/auth/callback \
+  --volume relanto-data:/var/lib/relanto:U \
+  ghcr.io/sebastian-software/relanto:local
 ```
 
-oder
+Vor dem Start müssen `POCKET_ID_ISSUER`, `POCKET_ID_CLIENT_ID` und `POCKET_ID_REDIRECT_URI` zur eigenen Pocket-ID-Konfiguration passen. `APP_SESSION_SECRET` und `MAILER_SECRET_KEY` sind starke, zufällig erzeugte Laufzeit-Secrets. `MAILER_DB_PATH` zeigt in das persistente Volume; dadurch bleibt die SQLite-Datenbank nach einem Container-Neustart erhalten.
+
+Docker kann alternativ denselben lokalen Build verwenden. Die beiden Secret-Variablen aus dem vorherigen Block müssen noch in derselben Shell gesetzt sein:
 
 ```bash
 docker build --build-arg RELANTO_GIT_SHORT_SHA=$(git rev-parse --short HEAD) -t ghcr.io/sebastian-software/relanto:local .
+docker volume create relanto-data
+docker run --rm --name relanto \
+  --publish 3000:3000 \
+  --env NODE_ENV=production \
+  --env APP_SESSION_SECRET="${APP_SESSION_SECRET}" \
+  --env MAILER_SECRET_KEY="${MAILER_SECRET_KEY}" \
+  --env MAILER_DB_PATH=/var/lib/relanto/mailer.sqlite \
+  --env POCKET_ID_ISSUER=https://pocket-id.example.com \
+  --env POCKET_ID_CLIENT_ID=mailer \
+  --env POCKET_ID_REDIRECT_URI=http://localhost:3000/auth/callback \
+  --volume relanto-data:/var/lib/relanto \
+  ghcr.io/sebastian-software/relanto:local
 ```
 
-Der Standardpfad mit `pnpm install`, `pnpm --filter @relanto/frontend build` und dem Container-Build benötigt keine privaten npm-Zugangsdaten und keine geheime Build-Konfiguration. Das Standard-Image enthält keine Operator-Assets und keine Schriftdateien.
+Der Standardpfad mit `pnpm install`, `pnpm --filter @relanto/frontend build` und dem Container-Build benötigt keine privaten npm-Zugangsdaten und keine geheime Build-Konfiguration. Anwendungs- und OIDC-Secrets werden ausschließlich beim Start übergeben und dürfen nicht in Build-Argumente, Image-Layer, Labels oder den Build-Kontext gelangen. Sollten spätere Builds Zugangsdaten benötigen, dürfen sie ausschließlich über kurzlebige BuildKit-Secret-Mounts eingebunden werden. Das Standard-Image enthält keine Operator-Assets und keine Schriftdateien.
+
+Der lokale Quell-Build bleibt auch nach einer späteren GHCR-Freigabe der Fallback. Er ist jedoch keine Zusage, dass Relanto auf ARM oder anderen Architekturen unterstützt wird.
 
 Der Footer im Admin-Frontend zeigt die laufende Frontend-Version zusammen mit dem kurzen Git-Hash im Format `vX.Y.Z-<hash>`. Im Containerpfad kommt der Hash über `RELANTO_GIT_SHORT_SHA`.
+
+### Übergang zur öffentlichen GHCR-Nutzung
+
+Die Sichtbarkeit darf erst geändert werden, wenn der gehärtete Workflow auf `main` gemergt ist, ein realer Release alle Archiv-, Trivy-, Skopeo- und Digest-Gates bestanden hat, das Package exakt mit `sebastian-software/relanto` verknüpft ist, der aktuelle Release-Workflow den erforderlichen Package-Zugriff besitzt und unmittelbar davor frisch gelesene Metadaten weiterhin exakt `private` melden. Danach führt ein autorisierter Operator den bereits genehmigten, irreversiblen Wechsel von `private` zu `public` einmalig unter **Package settings** → **Danger Zone** → **Change visibility** aus. GitHub dokumentiert dafür keinen REST- oder GraphQL-Mutationsendpunkt; der Workflow versucht keine Sichtbarkeitsänderung.
+
+Der abschließende Read-only-Metadatencheck des Workflows akzeptiert ausschließlich die bekannten Zustände `private` und `public`. Dadurch bleiben spätere Releases nach der Freigabe möglich; die zusätzliche `private`-Prüfung ist nur die Vorbedingung der erstmaligen manuellen Umstellung.
+
+Nach dem UI-Schritt muss ein anonymer Pull ohne Login oder Token für `linux/amd64` real erfolgreich sein. Erst ein späterer PR 2 darf diesen Pull als normalen Installationsweg dokumentieren. Das vollständige Verfahren und die erforderlichen Nachweise stehen im [Runbook zur GHCR-Image-Sichtbarkeit](../../docs/ghcr-image-visibility.md).
 
 ### Optionale Operator-Assets
 
@@ -345,7 +391,7 @@ Hinweise:
 - Gesichert werden die persistenten App-Daten im Volume, aktuell insbesondere `mailer.sqlite`.
 - Secrets, Quadlet-Dateien und andere Host-Konfigurationen sind nicht Teil dieses Backups.
 
-Die GHCR-Package-Sichtbarkeit selbst wird in GitHub verwaltet. Der Workflow pusht das Image nach `ghcr.io/sebastian-software/relanto`; falls es privat bleiben soll, muss das Package in GHCR entsprechend auf privat bzw. repository-inherited gesetzt sein.
+Die GHCR-Package-Sichtbarkeit selbst wird in GitHub verwaltet. Während der PR-1-Übergangsphase bleibt das Package privat; der Release-Workflow pusht nach `ghcr.io/sebastian-software/relanto`, ändert die Sichtbarkeit aber nicht.
 
 Der pnpm-Workspace gibt Native-Builds bewusst nur für `better-sqlite3` frei, und der Docker-Build führt danach explizit `pnpm rebuild better-sqlite3` plus einen kurzen Import-Smoke-Test aus. Damit scheitert der GitHub-Actions-Pfad früh, falls die SQLite-Bindings nicht wirklich gebaut wurden.
 

@@ -7,3 +7,29 @@ packages/*/.react-router
 tmp
 .DS_Store
 *.log
+
+# Lokale Konfiguration und Zugangsdaten dürfen den Build-Kontext auch in
+# verschachtelten Arbeitsverzeichnissen nicht erreichen.
+**/.env
+**/.env.*
+!packages/frontend/.env.development.example
+**/.npmrc
+**/.yarnrc
+**/.yarnrc.*
+**/.netrc
+**/.git-credentials
+**/.docker/config.json
+**/.dockerconfigjson
+**/.config/gh/hosts.yml
+**/*credentials*
+**/*credential*
+
+# Private Schlüssel und Zertifikatscontainer bleiben vollständig außerhalb
+# des Build-Kontexts.
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/id_rsa*
+**/id_ed25519*

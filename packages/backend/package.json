@@ -3,6 +3,21 @@
   "version": "0.19.8",
   "private": true,
   "license": "MIT",
+  "files": [
+    "openapi.json",
+    "src/db.ts",
+    "src/env.ts",
+    "src/index.ts",
+    "src/metrics.ts",
+    "src/openapi/generate.ts",
+    "src/openapi/registry.ts",
+    "src/openapi/responses.ts",
+    "src/security.ts",
+    "src/service.ts",
+    "src/structured-log.ts",
+    "src/types.ts",
+    "src/worker.ts"
+  ],
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
