@@ -230,6 +230,13 @@ jobs:
             --progress quiet \
             "${control_root}"
 
+          # Trivy's --input accepts a docker-save tarball or an OCI image
+          # layout directory, not an OCI archive tarball. Each unchanged
+          # archive is therefore unpacked into a temporary layout directory.
+          mkdir -m 700 "${control_root}/positive-control-layout"
+          tar -xf "${control_root}/positive-control.oci.tar" \
+            -C "${control_root}/positive-control-layout"
+
           set +e
           # Detailed positive-control findings stay inside the mode-700
           # temporary directory; workflow output exposes only the verdict.
@@ -240,7 +247,7 @@ jobs:
               --exit-code 1 \
               --format json \
               --output positive-control.json \
-              --input positive-control.oci.tar \
+              --input positive-control-layout \
               >/dev/null 2>&1
           )
           positive_status=$?
@@ -252,9 +259,12 @@ jobs:
             exit 1
           fi
 
+          mkdir -m 700 "${release_scan_root}/relanto-release-layout"
+          tar -xf "${GITHUB_WORKSPACE}/relanto-release.oci.tar" \
+            -C "${release_scan_root}/relanto-release-layout"
           if ! (
             cd "${release_scan_root}"
-            trivy image --scanners secret --exit-code 1 --input "${GITHUB_WORKSPACE}/relanto-release.oci.tar" \
+            trivy image --scanners secret --exit-code 1 --input "${release_scan_root}/relanto-release-layout" \
               > /dev/null 2>"${release_scan_log}"
           ); then
             echo "::error::Release archive secret scan failed or detected a recognized secret."

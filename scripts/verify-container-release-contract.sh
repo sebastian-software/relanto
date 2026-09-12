@@ -170,8 +170,12 @@ require_pattern "${RELEASE_WORKFLOW}" '--scanners[=[:space:]]+secret' \
   'release workflow must run the explicit Trivy secret scanner'
 require_pattern "${RELEASE_WORKFLOW}" '--exit-code[=[:space:]]+1' \
   'recognized secrets must fail the release gate'
-require_pattern "${RELEASE_WORKFLOW}" '--input[=[:space:]]+[^[:space:]]*relanto-release\.oci\.tar' \
-  'the secret scanner must inspect the release OCI archive directly'
+require_pattern "${RELEASE_WORKFLOW}" 'tar[[:space:]]+-x[^[:cntrl:]]*relanto-release\.oci\.tar' \
+  'the secret scanner must unpack the unchanged release OCI archive into a layout directory'
+require_pattern "${RELEASE_WORKFLOW}" 'trivy[[:space:]]+image[[:space:]][^[:cntrl:]]*--input[=[:space:]]+[^[:space:]]*relanto-release-layout' \
+  'the release secret scan must inspect the unpacked OCI layout directory of the release archive'
+forbid_pattern "${RELEASE_WORKFLOW}" '--input[=[:space:]]+[^[:space:]]*\.oci\.tar' \
+  'Trivy cannot read an OCI archive tarball; --input must point at an OCI layout directory'
 require_pattern "${RELEASE_WORKFLOW}" 'positive-control\.oci\.tar' \
   'the secret scanner must be proven by a disposable positive-control archive'
 require_pattern "${RELEASE_WORKFLOW}" 'positive_status' \
