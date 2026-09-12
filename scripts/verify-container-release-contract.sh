@@ -259,8 +259,18 @@ require_file "${RELEASE_ARCHIVE_LOADER}" \
 if [ -f "${RELEASE_ARCHIVE_LOADER}" ]; then
   forbid_pattern "${RELEASE_ARCHIVE_LOADER}" '(docker\.sock|docker-daemon:|docker://|login|push)' \
     'the archive loader must not mount a daemon socket, use a daemon or registry transport, log in or publish'
-  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'docker[[:space:]]+load[[:space:]]+--input' \
-    'the archive loader must load the unchanged OCI archive with the Docker CLI'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'docker[[:space:]]+load[[:space:]]+--input[[:space:]]+"\$\{ARCHIVE_DIR\}/\$\{ARCHIVE_NAME\}"' \
+    'the archive loader must first load the unchanged OCI archive with the Docker CLI'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'DOCKER_ARCHIVE_NAME="\$\{ARCHIVE_STEM\}\.docker\.tar"' \
+    'the archive loader must derive the temporary Docker archive next to the OCI archive'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'skopeo[[:space:]]+copy[[:space:]]+"\$\{ARCHIVE_REF\}"[[:space:]]+"docker-archive:\$\{DOCKER_ARCHIVE_NAME\}:\$\{IMAGE_TAG\}"' \
+    'a classic image store must receive a file-based Docker archive converted by Skopeo, never a daemon transport'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'docker[[:space:]]+load[[:space:]]+--input[[:space:]]+"\$\{ARCHIVE_DIR\}/\$\{DOCKER_ARCHIVE_NAME\}"' \
+    'the archive loader must load the converted Docker archive with the Docker CLI'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'converted_config_digest\}"[[:space:]]+!=[[:space:]]+"\$\{config_digest\}"' \
+    'the converted Docker archive must carry the archived config blob'
+  require_pattern "${RELEASE_ARCHIVE_LOADER}" 'trap[[:space:]]+cleanup[[:space:]]+EXIT' \
+    'the temporary Docker archive must be removed on every exit'
   require_pattern "${RELEASE_ARCHIVE_LOADER}" 'skopeo[[:space:]]+inspect[[:space:]]+--raw' \
     'the archive loader must read the archived manifest config digest'
   require_pattern "${RELEASE_ARCHIVE_LOADER}" 'skopeo[[:space:]]+inspect[[:space:]]+--config' \
