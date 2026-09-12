@@ -11,6 +11,9 @@ importers:
       '@cspell/dict-de-de':
         specifier: ^4.1.2
         version: 4.1.2
+      '@sebastian-software/standards':
+        specifier: 0.10.0
+        version: 0.10.0
       dotenv-cli:
         specifier: ^11.0.0
         version: 11.0.0
@@ -42,8 +45,8 @@ importers:
         specifier: ^12.10.0
         version: 12.11.1
       nodemailer:
-        specifier: ^9.0.3
-        version: 9.0.3
+        specifier: ^9.1.1
+        version: 9.1.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -1774,6 +1777,11 @@ packages:
     resolution: {integrity: sha512-tkuFxhvKO/HlGd0VsINF6vHSYH8AF8W0TcNxKDK6JZmrehngFj78pToc8iemtnvwilDjs2G/qSzYFhe9U8q+fw==}
     cpu: [x64]
     os: [win32]
+
+  '@sebastian-software/standards@0.10.0':
+    resolution: {integrity: sha512-7b79pfy7oMkIpQAWYZENzi7yJP4VOI6vIgairtx0L0YJ99lbOFI2P94TPeBUSUFwjZvF39yIWmUeORZDrNdmVw==}
+    engines: {node: '>=24.0.0'}
+    hasBin: true
 
   '@sindresorhus/base62@1.0.0':
     resolution: {integrity: sha512-TeheYy0ILzBEI/CO55CP6zJCSdSWeRtGnHy8U8dWSUH4I68iqTsy7HkMktR4xakThc9jotkPQUXT4ITdbV7cHA==}
@@ -3999,8 +4007,8 @@ packages:
     resolution: {integrity: sha512-GYVXHE2KnrzAfsAjl4uP++evGFCrAU1jta4ubEjIG7YWt/64Gqv66a30yKwWczVjA6j3bM4nBwH7Pk1JmDHaxQ==}
     engines: {node: '>=18'}
 
-  nodemailer@9.0.3:
-    resolution: {integrity: sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw==}
+  nodemailer@9.1.1:
+    resolution: {integrity: sha512-izw9mVKFix6YSnC9eLgV6g1opl9DUlRio9ZNcq+Wu9Ujn2UwF+8Nl0B8nz22kEC+CTZCvinkxwJ0DeFbb6NwcQ==}
     engines: {node: '>=6.0.0'}
 
   nopt@7.2.1:
@@ -6454,6 +6462,8 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.61.0':
     optional: true
+
+  '@sebastian-software/standards@0.10.0': {}
 
   '@sindresorhus/base62@1.0.0': {}
 
@@ -9186,7 +9196,7 @@ snapshots:
 
   node-releases@2.0.46: {}
 
-  nodemailer@9.0.3: {}
+  nodemailer@9.1.1: {}
 
   nopt@7.2.1:
     dependencies:
