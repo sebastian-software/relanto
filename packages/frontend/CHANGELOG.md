@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.9](https://github.com/sebastian-software/relanto/compare/frontend-v0.19.8...frontend-v0.19.9) (2026-09-13)
+
+
+### Bug Fixes
+
+* **container:** Veröffentlichung gegen Secrets absichern ([#16](https://github.com/sebastian-software/relanto/issues/16)) ([2553bdf](https://github.com/sebastian-software/relanto/commit/2553bdf4e272fc4cb7c955bde1fc880cec39bd69))
+* **deps:** update dependency vitest to v4.1.11 [security] ([#21](https://github.com/sebastian-software/relanto/issues/21)) ([2ba4d2f](https://github.com/sebastian-software/relanto/commit/2ba4d2f1018b6f8b281f0d986000e73503ca22a3))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @relanto/backend bumped to 0.19.9
+
 ## [0.19.8](https://github.com/sebastian-software/relanto/compare/frontend-v0.19.7...frontend-v0.19.8) (2026-07-22)
 
 
