@@ -16,5 +16,5 @@ minimumReleaseAgeExclude:
 overrides:
   "tsup>postcss@^8.4.12": "8.5.26"
   "vite>postcss@^8.5.16": "8.5.26"
-  "jsdom>undici@^7.25.0": "7.29.0"
+  "jsdom>undici@^7.25.0": "7.29.1"
   "@react-router/dev>valibot@^1.4.1": "1.4.2"
