@@ -17,9 +17,6 @@ importers:
       '@cspell/dict-de-de':
         specifier: ^4.1.2
         version: 4.1.2
-      '@sebastian-software/standards':
-        specifier: 0.11.1
-        version: 0.11.1
       dotenv-cli:
         specifier: ^11.0.0
         version: 11.0.0
@@ -1795,11 +1792,6 @@ packages:
     resolution: {integrity: sha512-tkuFxhvKO/HlGd0VsINF6vHSYH8AF8W0TcNxKDK6JZmrehngFj78pToc8iemtnvwilDjs2G/qSzYFhe9U8q+fw==}
     cpu: [x64]
     os: [win32]
-
-  '@sebastian-software/standards@0.11.1':
-    resolution: {integrity: sha512-3WECKOYgD7bZ7fmePTjl4Lqxo4OasvCb9utGxMUVG1czMmXCMvagXgLcfFTWczKMeFkDL2Y7k4w99NKU/i9h3A==}
-    engines: {node: '>=24.0.0'}
-    hasBin: true
 
   '@sindresorhus/base62@1.0.0':
     resolution: {integrity: sha512-TeheYy0ILzBEI/CO55CP6zJCSdSWeRtGnHy8U8dWSUH4I68iqTsy7HkMktR4xakThc9jotkPQUXT4ITdbV7cHA==}
@@ -6502,8 +6494,6 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.61.0':
     optional: true
-
-  '@sebastian-software/standards@0.11.1': {}
 
   '@sindresorhus/base62@1.0.0': {}
 
