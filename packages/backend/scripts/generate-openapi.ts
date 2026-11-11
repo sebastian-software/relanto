@@ -5,8 +5,8 @@
 //
 // The document content is deterministic (sorted keys), so a second run without
 // code changes produces no diff. The written file is then formatted with oxfmt
-// so it satisfies the repo-wide `format:check` — `.oxfmtrc.json` is a
-// standards-managed file and must not carry a per-file ignore for the spec.
+// so it satisfies the repo-wide `format:check` without a per-file ignore for
+// the spec.
 /* eslint-disable security/detect-non-literal-fs-filename -- The output path is derived from the module URL, not user input. */
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";

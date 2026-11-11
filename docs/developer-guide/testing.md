@@ -68,7 +68,7 @@ Schlägt einer dieser Tests fehl, blockiert das auch den lokalen Gate `pnpm agen
 | `pnpm --filter @relanto/backend test`  | Backend-Tests isoliert ausführen                         |
 | `pnpm --filter @relanto/frontend test` | Frontend-Tests isoliert ausführen                        |
 
-`pnpm agent:check` ist der Standard-Check vor einem Commit. CI führt zusätzlich `standards check`, `pnpm audit` und Trivy aus – agent:check und CI sind nicht identisch.
+`pnpm agent:check` ist der Standard-Check vor einem Commit. CI führt zusätzlich `pnpm audit` und Trivy aus – agent:check und CI sind nicht identisch.
 
 ## Konventionen
 
