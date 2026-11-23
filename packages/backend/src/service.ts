@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/strict-boolean-expressions, complexity, max-lines, max-lines-per-function, max-params, max-statements, no-await-in-loop, no-negated-condition, no-nested-ternary, sonarjs/cognitive-complexity, sonarjs/no-duplicate-string -- This service module is the legacy persistence/API boundary; narrowing database rows and decomposing workflows requires a separate behavior-preserving refactor. */
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import nodemailer from "nodemailer";
+import { createTransport } from "nodemailer";
 
 import { getDatabase } from "./db.js";
 import {
@@ -126,7 +126,7 @@ const ACCESS_TOKEN_AUDIENCE = "relanto-api";
 const ACCESS_TOKEN_LIFETIME_SECONDS = 15 * 60;
 
 let lookupSmtpHost = dnsLookup;
-let createMailerTransport = nodemailer.createTransport.bind(nodemailer);
+let createMailerTransport = createTransport;
 
 const BLOCKED_IPV4_RANGES: Array<[number, number]> = [
   [ipv4ToInteger("0.0.0.0"), ipv4ToInteger("0.255.255.255")],
@@ -3682,7 +3682,7 @@ export function setSmtpTestDependencies(
 
 export function resetSmtpTestDependencies(): void {
   lookupSmtpHost = dnsLookup;
-  createMailerTransport = nodemailer.createTransport.bind(nodemailer);
+  createMailerTransport = createTransport;
 }
 
 /**
