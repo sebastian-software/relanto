@@ -156,6 +156,22 @@ jobs:
       - name: Dependency audit (production)
         run: pnpm audit --prod --audit-level high
 
+  node-24:
+    name: Node.js 24 compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm agent:check:ci
+
   container:
     # Build the container image on a Docker-capable GitHub-hosted runner so a
     # broken Dockerfile or an image that crashes on boot fails the pull request

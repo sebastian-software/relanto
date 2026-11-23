@@ -14,6 +14,9 @@ minimumReleaseAgeExclude:
 # Sicherheitsupdates für transitive Abhängigkeiten; entfernen, sobald die
 # jeweiligen Elternpakete selbst auf sichere Versionen auflösen.
 overrides:
+  "express>body-parser@<2.4.0": 2.4.0
+  "express>proxy-addr@<2.0.8": 2.0.8
+  "@react-router/serve>compression@<1.8.2": 1.8.2
   "tsup>postcss@^8.4.12": "8.5.26"
   "vite>postcss@^8.5.16": "8.5.26"
   "jsdom>undici@^7.25.0": "7.29.0"
